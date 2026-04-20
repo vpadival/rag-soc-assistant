@@ -1,6 +1,6 @@
 # RAG SOC Assistant
 
-> 🚧 **Work in Progress (WIP):** This repository is still under active development. Features, APIs, and project structure may change frequently.
+> 🚧 **Work in Progress:** This repository is still under active development. Features, APIs, and project structure may change frequently.
 
 A local, offline **Security Operations Centre (SOC) assistant** powered by Retrieval-Augmented Generation (RAG). It analyses raw security alerts against a curated playbook knowledge base and returns structured triage output — attack type, severity, MITRE ATT&CK mapping, mitigation steps, and detection recommendations.
 
