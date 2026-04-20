@@ -46,3 +46,9 @@ temp/
 chroma/
 faiss_index/
 vector_store/
+
+# ...existing code...
+
+# Chroma / vector DB
+chroma_store/
+*.sqlite3
