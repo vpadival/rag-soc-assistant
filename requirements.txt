@@ -1,4 +1,12 @@
-chromadb==0.5.3
+# Phase 1 — RAG pipeline
+# chromadb 0.5.3 requires numpy<2 which has no Python 3.14 prebuilt wheels.
+# chromadb>=0.6.0 supports numpy 2.x which ships 3.14 wheels.
+# If you recreate the venv with Python 3.11/3.12, you can pin back to chromadb==0.5.3.
+chromadb>=0.6.0
 ollama==0.2.1
 sentence-transformers==3.0.1
 rich==13.7.1
+
+# Phase 2 — REST API
+fastapi==0.115.12
+uvicorn[standard]==0.34.0

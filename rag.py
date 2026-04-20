@@ -36,6 +36,16 @@ TOP_K:       int = 2
 # Mutable runtime setting — lowercase so Pylance does not treat it as a constant
 _llm_model: str = "llama3"   # change to "mistral" or "phi3" if preferred
 
+
+def get_llm_model() -> str:
+    return _llm_model
+
+
+def set_llm_model(model: str) -> None:
+    global _llm_model
+    _llm_model = model
+
+
 # Type alias for a single retrieved hit
 Hit = dict[str, Any]
 
@@ -129,7 +139,12 @@ def generate(prompt: str) -> str:
         ],
         stream=False,
     )
-    content: str = response.message.content or ""
+    # ollama==0.2.1 returns a plain dict, not a typed ChatResponse object.
+    # Newer versions use response.message.content — keep both paths working.
+    if isinstance(response, dict):
+        content: str = response.get("message", {}).get("content", "") or ""
+    else:
+        content = response.message.content or ""
     return content.strip()
 
 
