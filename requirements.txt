@@ -1,0 +1,4 @@
+chromadb==0.5.3
+ollama==0.2.1
+sentence-transformers==3.0.1
+rich==13.7.1

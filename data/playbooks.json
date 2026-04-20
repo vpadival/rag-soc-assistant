@@ -1,0 +1,134 @@
+[
+  {
+    "id": "pb-001",
+    "title": "SSH Brute Force Attack",
+    "tags": ["ssh", "brute-force", "authentication", "failed-login"],
+    "severity": "HIGH",
+    "indicators": [
+      "Multiple failed SSH login attempts from a single IP",
+      "Login attempts across many usernames in short time",
+      "Source IP from unusual geolocation",
+      "Attempts targeting root or admin accounts"
+    ],
+    "explanation": "An SSH brute force attack occurs when an attacker repeatedly attempts to authenticate via SSH using automated tools, cycling through password lists or common credentials. Multiple failed logins from a single source IP in a short window is the primary indicator.",
+    "mitigation": [
+      "Block the source IP at the firewall immediately",
+      "Enable Multi-Factor Authentication (MFA) on all SSH access",
+      "Configure fail2ban or equivalent to auto-ban IPs after 5 failed attempts",
+      "Restrict SSH access to known IP ranges via allowlist",
+      "Disable password-based SSH auth; enforce key-based auth only",
+      "Monitor affected user accounts for signs of successful compromise"
+    ],
+    "detection": "Configure SIEM rule: >5 failed SSH logins from same source IP within 60 seconds. Correlate with successful login events from same IP to detect if brute force succeeded.",
+    "mitre_attack": "T1110.001 - Brute Force: Password Guessing"
+  },
+  {
+    "id": "pb-002",
+    "title": "Port Scanning / Reconnaissance",
+    "tags": ["port-scan", "reconnaissance", "nmap", "network-probe"],
+    "severity": "MEDIUM",
+    "indicators": [
+      "Sequential connection attempts to many ports on a single host",
+      "SYN packets without completing TCP handshake",
+      "Connections to known honeypot ports",
+      "High volume of ICMP packets from single source"
+    ],
+    "explanation": "Port scanning is a reconnaissance technique where an attacker probes a host to discover open services. It often precedes an actual attack and indicates the attacker is mapping the network.",
+    "mitigation": [
+      "Block source IP if scanning is aggressive",
+      "Deploy IDS/IPS rules to detect and alert on scan patterns",
+      "Ensure firewall rules expose only required ports",
+      "Deploy honeypot ports to detect and attribute scans"
+    ],
+    "detection": "Alert on: >20 unique destination ports from single source IP within 30 seconds. Separate rules for SYN-only scans and full-connect scans.",
+    "mitre_attack": "T1046 - Network Service Scanning"
+  },
+  {
+    "id": "pb-003",
+    "title": "Phishing / Credential Harvesting",
+    "tags": ["phishing", "email", "credential", "social-engineering"],
+    "severity": "HIGH",
+    "indicators": [
+      "User clicked link in suspicious email",
+      "DNS query to newly registered or typosquat domain",
+      "Browser navigated to credential harvesting page",
+      "POST request with form data to unknown external host"
+    ],
+    "explanation": "Phishing attacks trick users into submitting credentials or downloading malware via deceptive emails or websites. Credential harvesting pages mimic legitimate login portals.",
+    "mitigation": [
+      "Immediately reset credentials for affected accounts",
+      "Block the phishing domain at DNS/proxy level",
+      "Force MFA re-enrollment for impacted users",
+      "Alert user and conduct awareness refresher",
+      "Scan endpoint for malware download from phishing link"
+    ],
+    "detection": "Correlate email gateway alerts with proxy/DNS logs. Alert on: user visited domain registered < 30 days ago AND submitted form data.",
+    "mitre_attack": "T1566.002 - Phishing: Spearphishing Link"
+  },
+  {
+    "id": "pb-004",
+    "title": "Privilege Escalation Attempt",
+    "tags": ["privilege-escalation", "sudo", "admin", "lateral-movement"],
+    "severity": "CRITICAL",
+    "indicators": [
+      "Unexpected sudo or su command execution",
+      "Process running as root spawned by non-root parent",
+      "Access to /etc/passwd or /etc/shadow outside maintenance window",
+      "New user added to sudoers or admin group"
+    ],
+    "explanation": "Privilege escalation occurs when an attacker or malware gains elevated system rights beyond their initial foothold, enabling deeper system access, persistence, and data exfiltration.",
+    "mitigation": [
+      "Immediately revoke elevated access from compromised account",
+      "Kill suspicious processes running with escalated privileges",
+      "Audit sudoers file and remove unauthorized entries",
+      "Isolate affected host from network pending investigation",
+      "Conduct full forensic review of endpoint"
+    ],
+    "detection": "Alert on: sudo commands by accounts not in approved sudo users list, or process privilege change detected by EDR outside change window.",
+    "mitre_attack": "T1548 - Abuse Elevation Control Mechanism"
+  },
+  {
+    "id": "pb-005",
+    "title": "Data Exfiltration",
+    "tags": ["exfiltration", "data-loss", "dns-tunneling", "large-upload"],
+    "severity": "CRITICAL",
+    "indicators": [
+      "Unusually large outbound data transfer",
+      "Connections to cloud storage (Dropbox, Mega) outside business hours",
+      "DNS queries with abnormally long subdomain labels (DNS tunneling)",
+      "Compressed archive files created and immediately transferred"
+    ],
+    "explanation": "Data exfiltration is the unauthorized transfer of data from the organization's network. Attackers often use encrypted channels, DNS tunneling, or legitimate cloud services to evade detection.",
+    "mitigation": [
+      "Block outbound connection to identified exfil destination immediately",
+      "Preserve all network flow logs for forensics",
+      "Identify and contain the source host",
+      "Engage incident response team and legal/compliance",
+      "Notify DPO if personal data is involved (GDPR/PDPA)"
+    ],
+    "detection": "Alert on: outbound transfer >500MB to single destination within 1 hour, or DNS query subdomain length >50 chars. Baseline normal egress per host for anomaly detection.",
+    "mitre_attack": "T1041 - Exfiltration Over C2 Channel"
+  },
+  {
+    "id": "pb-006",
+    "title": "Malware / Ransomware Execution",
+    "tags": ["malware", "ransomware", "endpoint", "process-injection"],
+    "severity": "CRITICAL",
+    "indicators": [
+      "Mass file rename events with unknown extension",
+      "Ransom note file created on desktop or shared drives",
+      "Sudden spike in disk I/O from unexpected process",
+      "Outbound connection to known C2 IP/domain"
+    ],
+    "explanation": "Ransomware encrypts files and demands payment for decryption keys. Execution typically follows an initial access vector (phishing, exploit) and may spread laterally across the network before triggering encryption.",
+    "mitigation": [
+      "Immediately isolate infected host from network",
+      "Do NOT pay ransom without security team approval",
+      "Identify patient zero and initial access vector",
+      "Restore from clean offline backup after full remediation",
+      "Report to CERT and law enforcement if required"
+    ],
+    "detection": "Alert on: >100 file rename events per minute from single process, or process writing to >10 unique directory paths within 30 seconds.",
+    "mitre_attack": "T1486 - Data Encrypted for Impact"
+  }
+]
