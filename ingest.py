@@ -24,31 +24,55 @@ console = Console()
 PLAYBOOKS_PATH: str = os.path.join(os.path.dirname(__file__), "data", "playbooks.json")
 CHROMA_PATH:    str = os.path.join(os.path.dirname(__file__), "chroma_store")
 COLLECTION:     str = "soc_playbooks"
-EMBED_MODEL:    str = "nomic-embed-text"  # pull with: ollama pull nomic-embed-text
+EMBED_MODEL:    str = "nomic-embed-text"
 OLLAMA_TIMEOUT_SEC: float = 5.0
 
-# Use an explicit client so requests fail fast when Ollama is down.
 OLLAMA_CLIENT = ollama.Client(timeout=OLLAMA_TIMEOUT_SEC)
 
 
 def build_document_text(pb: dict[str, Any]) -> str:
     """
     Flatten a playbook dict into a single string for embedding.
-    Richer text → better retrieval accuracy.
+    Handles both old field names and new field names gracefully.
+
+    Field mapping (old → new):
+      explanation  → description
+      detection    → detection_rule
+      mitigation   → response_steps
+      mitre_attack → mitre_technique
+      tags         → optional, omitted if absent
     """
+    # Indicators — same key in both schemas
     indicators: list[str] = pb.get("indicators", [])
-    mitigation: list[str] = pb.get("mitigation", [])
+
+    # Mitigation steps — new schema uses response_steps
+    mitigation: list[str] = pb.get("mitigation") or pb.get("response_steps", [])
+
+    # Explanation — new schema uses description
+    explanation: str = pb.get("explanation") or pb.get("description", "")
+
+    # Detection rule — new schema uses detection_rule
+    detection: str = pb.get("detection") or pb.get("detection_rule", "")
+
+    # MITRE — new schema uses mitre_technique
+    mitre: str = pb.get("mitre_attack") or pb.get("mitre_technique", "N/A")
+
+    # Tags — optional, omit line if absent
+    tags: list[str] = pb.get("tags", [])
 
     lines: list[str] = [
         f"Title: {pb['title']}",
         f"Severity: {pb['severity']}",
-        f"Tags: {', '.join(pb['tags'])}",
-        f"MITRE ATT&CK: {pb.get('mitre_attack', 'N/A')}",
-        f"Explanation: {pb['explanation']}",
+        f"MITRE ATT&CK: {mitre}",
+        f"Explanation: {explanation}",
         f"Indicators: {'; '.join(indicators)}",
         f"Mitigation: {'; '.join(mitigation)}",
-        f"Detection: {pb['detection']}",
+        f"Detection: {detection}",
     ]
+
+    if tags:
+        lines.insert(2, f"Tags: {', '.join(tags)}")
+
     return "\n".join(lines)
 
 
@@ -87,7 +111,6 @@ def main() -> None:
     console.print(f"[green]✓[/] Loaded [bold]{len(playbooks)}[/] playbooks from {PLAYBOOKS_PATH}")
 
     # ── Init ChromaDB (persistent, local) ───────────────────────────────────
-    # PersistentClient return type is inferred — no need for the private ClientAPI annotation.
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     collection: chromadb.Collection = client.get_or_create_collection(
         name=COLLECTION,
@@ -96,9 +119,8 @@ def main() -> None:
     console.print(f"[green]✓[/] ChromaDB collection '{COLLECTION}' ready at {CHROMA_PATH}")
 
     # ── Build lists to upsert ────────────────────────────────────────────────
-    ids:       list[str]  = []
-    documents: list[str]  = []
-    # Use Any so the Sequence[Metadata] mismatch is suppressed at the source.
+    ids:        list[str] = []
+    documents:  list[str] = []
     embeddings: list[Any] = []
     metadatas:  list[Any] = []
 
@@ -115,14 +137,18 @@ def main() -> None:
             console.print(f"[yellow]![/] Skipping playbook id='{pb_id}' due to embedding error: {exc}")
             continue
 
+        # MITRE and tags — handle both old and new field names
+        mitre: str      = pb.get("mitre_attack") or pb.get("mitre_technique", "")
+        tags:  list[str] = pb.get("tags", [])
+
         ids.append(pb["id"])
         embeddings.append(vec)
         documents.append(doc_text)
         metadatas.append({
             "title":        pb["title"],
             "severity":     pb["severity"],
-            "tags":         ", ".join(pb["tags"]),
-            "mitre_attack": pb.get("mitre_attack", ""),
+            "tags":         ", ".join(tags),
+            "mitre_attack": mitre,
         })
 
     if not ids:
