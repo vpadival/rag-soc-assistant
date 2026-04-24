@@ -2,133 +2,386 @@
   {
     "id": "pb-001",
     "title": "SSH Brute Force Attack",
-    "tags": ["ssh", "brute-force", "authentication", "failed-login"],
     "severity": "HIGH",
-    "indicators": [
-      "Multiple failed SSH login attempts from a single IP",
-      "Login attempts across many usernames in short time",
-      "Source IP from unusual geolocation",
-      "Attempts targeting root or admin accounts"
-    ],
-    "explanation": "An SSH brute force attack occurs when an attacker repeatedly attempts to authenticate via SSH using automated tools, cycling through password lists or common credentials. Multiple failed logins from a single source IP in a short window is the primary indicator.",
-    "mitigation": [
+    "mitre_technique": "T1110.001",
+    "mitre_tactic": "Credential Access",
+    "description": "Repeated failed SSH authentication attempts from a single source IP indicating automated password guessing.",
+    "indicators": ["Multiple failed SSH logins from same IP", "Login attempts targeting root or admin", "High frequency auth failures within short window"],
+    "detection_rule": ">5 failed SSH logins from same source IP within 60 seconds",
+    "response_steps": [
       "Block the source IP at the firewall immediately",
       "Enable Multi-Factor Authentication (MFA) on all SSH access",
       "Configure fail2ban or equivalent to auto-ban IPs after 5 failed attempts",
-      "Restrict SSH access to known IP ranges via allowlist",
-      "Disable password-based SSH auth; enforce key-based auth only",
-      "Monitor affected user accounts for signs of successful compromise"
-    ],
-    "detection": "Configure SIEM rule: >5 failed SSH logins from same source IP within 60 seconds. Correlate with successful login events from same IP to detect if brute force succeeded.",
-    "mitre_attack": "T1110.001 - Brute Force: Password Guessing"
+      "Rotate credentials for any accounts that received failed attempts",
+      "Review successful logins from same IP range for lateral movement",
+      "Add source IP to threat intelligence blocklist"
+    ]
   },
   {
     "id": "pb-002",
     "title": "Port Scanning / Reconnaissance",
-    "tags": ["port-scan", "reconnaissance", "nmap", "network-probe"],
     "severity": "MEDIUM",
-    "indicators": [
-      "Sequential connection attempts to many ports on a single host",
-      "SYN packets without completing TCP handshake",
-      "Connections to known honeypot ports",
-      "High volume of ICMP packets from single source"
-    ],
-    "explanation": "Port scanning is a reconnaissance technique where an attacker probes a host to discover open services. It often precedes an actual attack and indicates the attacker is mapping the network.",
-    "mitigation": [
-      "Block source IP if scanning is aggressive",
-      "Deploy IDS/IPS rules to detect and alert on scan patterns",
-      "Ensure firewall rules expose only required ports",
-      "Deploy honeypot ports to detect and attribute scans"
-    ],
-    "detection": "Alert on: >20 unique destination ports from single source IP within 30 seconds. Separate rules for SYN-only scans and full-connect scans.",
-    "mitre_attack": "T1046 - Network Service Scanning"
+    "mitre_technique": "T1046",
+    "mitre_tactic": "Discovery",
+    "description": "Systematic probing of network ports to identify open services and potential attack vectors.",
+    "indicators": ["Sequential port connection attempts", "SYN packets without completing handshake", "Connections to unusual or high-numbered ports"],
+    "detection_rule": ">50 distinct port connections from same IP within 60 seconds",
+    "response_steps": [
+      "Log and monitor the scanning source IP",
+      "Block the source IP at the perimeter firewall",
+      "Identify which internal services were discovered",
+      "Ensure unnecessary ports are firewalled and not publicly exposed",
+      "Check for follow-up exploitation attempts from same IP",
+      "Report to threat intelligence team for IOC correlation"
+    ]
   },
   {
     "id": "pb-003",
     "title": "Phishing / Credential Harvesting",
-    "tags": ["phishing", "email", "credential", "social-engineering"],
     "severity": "HIGH",
-    "indicators": [
-      "User clicked link in suspicious email",
-      "DNS query to newly registered or typosquat domain",
-      "Browser navigated to credential harvesting page",
-      "POST request with form data to unknown external host"
-    ],
-    "explanation": "Phishing attacks trick users into submitting credentials or downloading malware via deceptive emails or websites. Credential harvesting pages mimic legitimate login portals.",
-    "mitigation": [
-      "Immediately reset credentials for affected accounts",
-      "Block the phishing domain at DNS/proxy level",
-      "Force MFA re-enrollment for impacted users",
-      "Alert user and conduct awareness refresher",
-      "Scan endpoint for malware download from phishing link"
-    ],
-    "detection": "Correlate email gateway alerts with proxy/DNS logs. Alert on: user visited domain registered < 30 days ago AND submitted form data.",
-    "mitre_attack": "T1566.002 - Phishing: Spearphishing Link"
+    "mitre_technique": "T1566.002",
+    "mitre_tactic": "Initial Access",
+    "description": "Deceptive emails or links designed to steal user credentials or deploy malware via social engineering.",
+    "indicators": ["Email from spoofed domain", "Link redirecting to credential capture page", "Unusual login from new geolocation after email open"],
+    "detection_rule": ">3 failed logins from same source IP within 10 minutes correlated with successful login from same IP",
+    "response_steps": [
+      "Immediately reset credentials for affected users",
+      "Block the phishing domain at DNS and email gateway",
+      "Quarantine the phishing email from all inboxes",
+      "Check for OAuth token grants or app permissions added",
+      "Enable conditional access policies requiring MFA",
+      "Notify affected users and conduct awareness training",
+      "Review mail flow rules for auto-forwarding to external domains"
+    ]
   },
   {
     "id": "pb-004",
     "title": "Privilege Escalation Attempt",
-    "tags": ["privilege-escalation", "sudo", "admin", "lateral-movement"],
     "severity": "CRITICAL",
-    "indicators": [
-      "Unexpected sudo or su command execution",
-      "Process running as root spawned by non-root parent",
-      "Access to /etc/passwd or /etc/shadow outside maintenance window",
-      "New user added to sudoers or admin group"
-    ],
-    "explanation": "Privilege escalation occurs when an attacker or malware gains elevated system rights beyond their initial foothold, enabling deeper system access, persistence, and data exfiltration.",
-    "mitigation": [
-      "Immediately revoke elevated access from compromised account",
-      "Kill suspicious processes running with escalated privileges",
-      "Audit sudoers file and remove unauthorized entries",
-      "Isolate affected host from network pending investigation",
-      "Conduct full forensic review of endpoint"
-    ],
-    "detection": "Alert on: sudo commands by accounts not in approved sudo users list, or process privilege change detected by EDR outside change window.",
-    "mitre_attack": "T1548 - Abuse Elevation Control Mechanism"
+    "mitre_technique": "T1548",
+    "mitre_tactic": "Privilege Escalation",
+    "description": "An attacker or malicious process attempting to gain elevated permissions beyond those initially granted.",
+    "indicators": ["sudo usage by non-admin user", "SUID binary execution", "Unexpected addition to sudoers or admin group"],
+    "detection_rule": "Non-privileged user executing sudo or su commands outside business hours",
+    "response_steps": [
+      "Immediately isolate the affected host from the network",
+      "Revoke elevated privileges and reset account credentials",
+      "Capture a memory dump and disk image for forensic analysis",
+      "Audit sudoers file and admin group membership",
+      "Review process tree for suspicious parent-child relationships",
+      "Check for persistence mechanisms (cron jobs, systemd services, startup scripts)",
+      "Escalate to incident response team"
+    ]
   },
   {
     "id": "pb-005",
     "title": "Data Exfiltration",
-    "tags": ["exfiltration", "data-loss", "dns-tunneling", "large-upload"],
     "severity": "CRITICAL",
-    "indicators": [
-      "Unusually large outbound data transfer",
-      "Connections to cloud storage (Dropbox, Mega) outside business hours",
-      "DNS queries with abnormally long subdomain labels (DNS tunneling)",
-      "Compressed archive files created and immediately transferred"
-    ],
-    "explanation": "Data exfiltration is the unauthorized transfer of data from the organization's network. Attackers often use encrypted channels, DNS tunneling, or legitimate cloud services to evade detection.",
-    "mitigation": [
-      "Block outbound connection to identified exfil destination immediately",
-      "Preserve all network flow logs for forensics",
-      "Identify and contain the source host",
-      "Engage incident response team and legal/compliance",
-      "Notify DPO if personal data is involved (GDPR/PDPA)"
-    ],
-    "detection": "Alert on: outbound transfer >500MB to single destination within 1 hour, or DNS query subdomain length >50 chars. Baseline normal egress per host for anomaly detection.",
-    "mitre_attack": "T1041 - Exfiltration Over C2 Channel"
+    "mitre_technique": "T1041",
+    "mitre_tactic": "Exfiltration",
+    "description": "Unauthorized transfer of sensitive data from the environment to an external destination.",
+    "indicators": ["Large outbound data transfer to unknown IP", "DNS tunneling patterns", "Encrypted traffic to non-business domains at unusual hours"],
+    "detection_rule": "Outbound transfer >100MB to single external IP within 1 hour outside business hours",
+    "response_steps": [
+      "Block outbound connection to destination IP immediately",
+      "Isolate the source host from the network",
+      "Identify what data was transferred using DLP logs",
+      "Preserve network flow logs and PCAP for forensics",
+      "Notify legal and compliance teams if regulated data is involved",
+      "Assess breach notification obligations under GDPR/HIPAA/PCI-DSS",
+      "Conduct full compromise assessment of source host"
+    ]
   },
   {
     "id": "pb-006",
     "title": "Malware / Ransomware Execution",
-    "tags": ["malware", "ransomware", "endpoint", "process-injection"],
     "severity": "CRITICAL",
-    "indicators": [
-      "Mass file rename events with unknown extension",
-      "Ransom note file created on desktop or shared drives",
-      "Sudden spike in disk I/O from unexpected process",
-      "Outbound connection to known C2 IP/domain"
-    ],
-    "explanation": "Ransomware encrypts files and demands payment for decryption keys. Execution typically follows an initial access vector (phishing, exploit) and may spread laterally across the network before triggering encryption.",
-    "mitigation": [
-      "Immediately isolate infected host from network",
-      "Do NOT pay ransom without security team approval",
-      "Identify patient zero and initial access vector",
-      "Restore from clean offline backup after full remediation",
-      "Report to CERT and law enforcement if required"
-    ],
-    "detection": "Alert on: >100 file rename events per minute from single process, or process writing to >10 unique directory paths within 30 seconds.",
-    "mitre_attack": "T1486 - Data Encrypted for Impact"
+    "mitre_technique": "T1486",
+    "mitre_tactic": "Impact",
+    "description": "Malicious code executing on a host, potentially encrypting files or establishing persistence for further attacks.",
+    "indicators": ["Mass file rename or extension change", "High disk I/O with encryption patterns", "Known malware hash or C2 beacon traffic"],
+    "detection_rule": ">100 file modifications per minute or known ransomware extension (.locked, .encrypted, .crypt)",
+    "response_steps": [
+      "Immediately isolate the infected host — disconnect from network",
+      "Do NOT shut down — preserve volatile memory for forensics",
+      "Identify the ransomware family via hash lookup (VirusTotal, MalwareBazaar)",
+      "Check for decryptors at nomoreransom.org before paying any ransom",
+      "Restore from last known clean backup",
+      "Identify patient zero and initial infection vector",
+      "Reset all credentials that were accessible on the infected host",
+      "Patch the exploited vulnerability before reconnecting"
+    ]
+  },
+  {
+    "id": "pb-007",
+    "title": "Lateral Movement via Pass-the-Hash",
+    "severity": "CRITICAL",
+    "mitre_technique": "T1550.002",
+    "mitre_tactic": "Lateral Movement",
+    "description": "Attacker uses captured NTLM hashes to authenticate to other systems without knowing the plaintext password.",
+    "indicators": ["NTLM authentication from unusual source", "Mimikatz or similar tool execution", "Admin shares accessed from non-admin workstations"],
+    "detection_rule": "NTLM authentication to multiple hosts from single source within 10 minutes",
+    "response_steps": [
+      "Isolate all affected hosts identified in the movement chain",
+      "Force password reset for all accounts whose hashes may have been captured",
+      "Enable Protected Users security group for privileged accounts",
+      "Disable NTLM where Kerberos is available",
+      "Deploy Windows Credential Guard on endpoints",
+      "Audit SMB access logs for additional lateral movement",
+      "Check for newly created local admin accounts on affected hosts"
+    ]
+  },
+  {
+    "id": "pb-008",
+    "title": "Command and Control (C2) Beacon",
+    "severity": "CRITICAL",
+    "mitre_technique": "T1071.001",
+    "mitre_tactic": "Command and Control",
+    "description": "Compromised host regularly communicating with attacker-controlled infrastructure using HTTP/HTTPS.",
+    "indicators": ["Regular outbound HTTP/S requests at fixed intervals", "JA3 fingerprint matching known C2 framework", "HTTP beaconing to recently registered domain"],
+    "detection_rule": "Outbound HTTP/S connections to same external IP at intervals <5 minutes for >30 minutes",
+    "response_steps": [
+      "Block the C2 IP and domain at firewall and DNS",
+      "Isolate the beaconing host immediately",
+      "Capture process responsible for beacon traffic",
+      "Identify initial access vector and infection timeline",
+      "Search for same C2 IOCs across all hosts in environment",
+      "Submit C2 indicators to threat intelligence feeds",
+      "Conduct full forensic investigation of beaconing host"
+    ]
+  },
+  {
+    "id": "pb-009",
+    "title": "Insider Threat / Abnormal Data Access",
+    "severity": "HIGH",
+    "mitre_technique": "T1078",
+    "mitre_tactic": "Defense Evasion",
+    "description": "Legitimate user account accessing significantly more data than typical baseline, suggesting malicious insider or compromised credentials.",
+    "indicators": ["User accessing files outside normal role scope", "Bulk download from SharePoint or S3", "Access at unusual hours from normal location"],
+    "detection_rule": "User accesses >3x their 30-day average file count within a single session",
+    "response_steps": [
+      "Preserve audit logs before any account action",
+      "Engage HR and legal before confronting the user",
+      "Revoke access tokens and enforce re-authentication",
+      "Review all data accessed in the anomalous session",
+      "Check for exfiltration via email, USB, or cloud sync",
+      "Apply DLP controls to user account pending investigation",
+      "Conduct interview with manager before account suspension"
+    ]
+  },
+  {
+    "id": "pb-010",
+    "title": "DNS Tunneling",
+    "severity": "HIGH",
+    "mitre_technique": "T1071.004",
+    "mitre_tactic": "Command and Control",
+    "description": "Attacker encodes data within DNS queries/responses to exfiltrate data or maintain C2 communication bypassing traditional controls.",
+    "indicators": ["Unusually long DNS query strings", "High volume of DNS queries to single domain", "Rare or newly registered domain with many subdomains"],
+    "detection_rule": "DNS queries with payload >100 bytes or >1000 queries/hour to single domain",
+    "response_steps": [
+      "Block the suspicious domain at DNS resolver level",
+      "Identify all internal hosts querying the suspicious domain",
+      "Capture and analyze DNS traffic for encoded payload",
+      "Isolate hosts confirmed to be tunneling",
+      "Deploy DNS security solution (e.g., Cisco Umbrella, NextDNS)",
+      "Restrict internal DNS to approved resolvers only",
+      "Review firewall rules to ensure direct DNS to external resolvers is blocked"
+    ]
+  },
+  {
+    "id": "pb-011",
+    "title": "Web Application SQL Injection",
+    "severity": "HIGH",
+    "mitre_technique": "T1190",
+    "mitre_tactic": "Initial Access",
+    "description": "Attacker injecting malicious SQL into web application inputs to extract data or execute commands on the database.",
+    "indicators": ["SQL syntax in HTTP request parameters", "WAF alerts for SQLi patterns", "Unexpected database errors in application logs"],
+    "detection_rule": "WAF blocks >10 SQLi attempts from same IP within 5 minutes",
+    "response_steps": [
+      "Block the source IP at WAF and firewall",
+      "Review application logs to determine if injection succeeded",
+      "If successful, identify which database tables were accessed",
+      "Rotate database credentials immediately",
+      "Apply parameterized query patches to vulnerable endpoints",
+      "Scan entire application for additional SQLi vulnerabilities",
+      "Notify data protection officer if personal data was accessed"
+    ]
+  },
+  {
+    "id": "pb-012",
+    "title": "Unauthorized Cloud Storage Access",
+    "severity": "HIGH",
+    "mitre_technique": "T1530",
+    "mitre_tactic": "Collection",
+    "description": "Unauthorized access to cloud object storage (S3, Azure Blob, GCS) due to misconfiguration or compromised credentials.",
+    "indicators": ["Public bucket access from anonymous user", "GetObject calls from unexpected geolocation", "Bulk download of S3 objects via API"],
+    "detection_rule": "More than 50 GetObject API calls from a new IP or anonymous principal within 1 hour",
+    "response_steps": [
+      "Revoke public access on the affected bucket immediately",
+      "Rotate IAM credentials associated with the access",
+      "Review CloudTrail / audit logs to enumerate accessed objects",
+      "Identify whether any sensitive data was exfiltrated",
+      "Enable S3 Block Public Access at the account level",
+      "Apply bucket policies restricting access to known VPCs or IPs",
+      "Enable server-side encryption on all buckets",
+      "Notify compliance team if regulated data was exposed"
+    ]
+  },
+  {
+    "id": "pb-013",
+    "title": "Account Takeover / Credential Stuffing",
+    "severity": "HIGH",
+    "mitre_technique": "T1110.004",
+    "mitre_tactic": "Credential Access",
+    "description": "Automated use of leaked username/password pairs from breached databases to gain unauthorized access to accounts.",
+    "indicators": ["High login failure rate followed by success", "Login from IP flagged in breach databases", "Multiple accounts accessed from single IP"],
+    "detection_rule": "Successful login preceded by >10 failures from same IP within 5 minutes",
+    "response_steps": [
+      "Force password reset on all successfully compromised accounts",
+      "Invalidate all active sessions for affected accounts",
+      "Enable MFA for all affected users",
+      "Block the source IP and ASN if abuse is widespread",
+      "Check HaveIBeenPwned or similar for credential exposure",
+      "Implement CAPTCHA or rate limiting on login endpoint",
+      "Alert users to change passwords on any reused services"
+    ]
+  },
+  {
+    "id": "pb-014",
+    "title": "Cryptomining / Resource Hijacking",
+    "severity": "MEDIUM",
+    "mitre_technique": "T1496",
+    "mitre_tactic": "Impact",
+    "description": "Unauthorized use of compute resources to mine cryptocurrency, indicating host compromise and attacker persistence.",
+    "indicators": ["CPU/GPU utilization consistently >90%", "Outbound connections to mining pool addresses", "Known miner process name or hash"],
+    "detection_rule": "CPU usage >85% sustained for >10 minutes with outbound connection to known mining pool port (3333, 4444, 14444)",
+    "response_steps": [
+      "Kill the mining process immediately",
+      "Isolate the host to prevent further network-based spread",
+      "Identify the initial infection vector (vulnerable service, phishing)",
+      "Remove miner binary and any associated persistence mechanisms",
+      "Check cron jobs, startup scripts, and scheduled tasks",
+      "Patch the exploited vulnerability",
+      "Review cloud billing for unexpected compute charges"
+    ]
+  },
+  {
+    "id": "pb-015",
+    "title": "Zero-Day Exploit Attempt",
+    "severity": "CRITICAL",
+    "mitre_technique": "T1203",
+    "mitre_tactic": "Execution",
+    "description": "Exploitation attempt targeting a previously unknown or unpatched vulnerability in software or hardware.",
+    "indicators": ["IDS signature for known exploit pattern", "Process crash followed by unexpected child process", "Memory corruption patterns in application logs"],
+    "detection_rule": "Application process spawning shell or interpreter as unexpected child process",
+    "response_steps": [
+      "Immediately isolate affected systems",
+      "Activate incident response team and escalate to CISO",
+      "Apply virtual patching via WAF or IPS rule if available",
+      "Capture memory dump before any remediation",
+      "Disable the vulnerable service if business impact allows",
+      "Monitor for vendor advisory and emergency patch",
+      "Share IOCs with threat intelligence community (ISAC)",
+      "Conduct threat hunt across all systems running same software version"
+    ]
+  },
+  {
+    "id": "pb-016",
+    "title": "Active Directory Kerberoasting",
+    "severity": "HIGH",
+    "mitre_technique": "T1558.003",
+    "mitre_tactic": "Credential Access",
+    "description": "Attacker requests Kerberos service tickets for service accounts to crack offline and obtain plaintext passwords.",
+    "indicators": ["Bulk TGS requests for service principal names", "RC4 encryption requested for AES-capable accounts", "Single user requesting tickets for many SPNs"],
+    "detection_rule": "Single account requesting >5 service tickets (TGS-REQ) within 1 minute",
+    "response_steps": [
+      "Identify the source account making excessive TGS requests",
+      "Reset passwords for all targeted service accounts immediately",
+      "Enforce AES256 encryption for all Kerberos service tickets",
+      "Implement Group Managed Service Accounts (gMSA) for service accounts",
+      "Audit all SPNs and remove unnecessary registrations",
+      "Enable audit logging for Kerberos ticket events (Event ID 4769)",
+      "Check if any service account credentials were subsequently used"
+    ]
+  },
+  {
+    "id": "pb-017",
+    "title": "Container Escape Attempt",
+    "severity": "CRITICAL",
+    "mitre_technique": "T1611",
+    "mitre_tactic": "Privilege Escalation",
+    "description": "Attempt to break out of a container sandbox to access the underlying host or other containers.",
+    "indicators": ["Container process accessing host filesystem paths", "Privileged container executing unexpected syscalls", "Docker socket mounted inside container"],
+    "detection_rule": "Container process accessing /proc/1, /host, or /var/run/docker.sock",
+    "response_steps": [
+      "Immediately terminate the suspicious container",
+      "Inspect the host node for signs of compromise",
+      "Review container runtime logs for escape technique used",
+      "Audit all running containers for privileged mode or dangerous mounts",
+      "Enforce Pod Security Standards (restricted profile) in Kubernetes",
+      "Remove Docker socket mounts from all non-essential containers",
+      "Apply seccomp and AppArmor profiles to all production containers",
+      "Rotate all secrets that were accessible within the container"
+    ]
+  },
+  {
+    "id": "pb-018",
+    "title": "Supply Chain / Dependency Confusion",
+    "severity": "HIGH",
+    "mitre_technique": "T1195.001",
+    "mitre_tactic": "Initial Access",
+    "description": "Malicious package published to public registry with same name as internal package, causing build systems to pull compromised code.",
+    "indicators": ["New version of internal package pulled from public registry", "Package hash mismatch from expected artifact", "Build pipeline executing unexpected network calls"],
+    "detection_rule": "CI/CD pipeline pulling package from public registry that matches internal namespace",
+    "response_steps": [
+      "Immediately halt affected build pipelines",
+      "Identify all systems that installed the malicious package",
+      "Isolate and forensically analyze any deployed artifacts",
+      "Reserve the package name on public registries to prevent future attacks",
+      "Configure package manager to prefer internal registry over public",
+      "Implement package allowlisting in CI/CD",
+      "Audit all dependencies for similar naming conflicts",
+      "Rotate any secrets accessible during the compromised build"
+    ]
+  },
+  {
+    "id": "pb-019",
+    "title": "DDoS / Volumetric Attack",
+    "severity": "HIGH",
+    "mitre_technique": "T1498",
+    "mitre_tactic": "Impact",
+    "description": "Overwhelming network or application infrastructure with traffic to cause denial of service for legitimate users.",
+    "indicators": ["Traffic volume exceeding baseline by >10x", "High rate of requests from distributed IPs", "Application response times >10x normal latency"],
+    "detection_rule": "Inbound traffic >10Gbps or HTTP request rate >10,000 req/sec sustained for >2 minutes",
+    "response_steps": [
+      "Activate DDoS mitigation service (Cloudflare, AWS Shield, Akamai)",
+      "Enable rate limiting at CDN and load balancer level",
+      "Identify and null-route the largest contributing source ranges",
+      "Notify upstream ISP for BGP blackholing if volumetric",
+      "Scale out origin infrastructure if application-layer attack",
+      "Enable CAPTCHA challenges for suspicious traffic patterns",
+      "Document attack vectors for post-incident report",
+      "Review and update DDoS runbook after mitigation"
+    ]
+  },
+  {
+    "id": "pb-020",
+    "title": "Exposed Credentials in Source Code",
+    "severity": "HIGH",
+    "mitre_technique": "T1552.001",
+    "mitre_tactic": "Credential Access",
+    "description": "Hardcoded API keys, passwords, or tokens discovered in source code repositories, exposing systems to unauthorized access.",
+    "indicators": ["Secret scanning alert from GitHub/GitLab", "API key pattern in committed file", "Credentials in .env file pushed to public repo"],
+    "detection_rule": "Secret scanning tool detects high-entropy string matching API key pattern in repository commit",
+    "response_steps": [
+      "Immediately revoke and rotate the exposed credentials",
+      "Assume the credentials have been compromised — check access logs",
+      "Remove the secret from git history using git filter-repo or BFG",
+      "If public repo, treat as fully compromised regardless of exposure time",
+      "Enable secret scanning on all repositories",
+      "Implement pre-commit hooks to prevent future secret commits",
+      "Add .env and secrets files to .gitignore",
+      "Audit all services using the rotated credential for unauthorized activity"
+    ]
   }
 ]
