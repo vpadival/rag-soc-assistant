@@ -68,15 +68,37 @@ class AnalyzeResponse(BaseModel):
 
 
 class PlaybookEntry(BaseModel):
+    """
+    Flexible schema that handles both old and new playbook field names.
+    All fields beyond id/title/severity are optional so adding new playbooks
+    with different field names never causes a 422 on GET /playbooks.
+    """
     id: str
     title: str
     severity: str
-    tags: list[str]
-    mitre_attack: str
-    explanation: str
-    indicators: list[str]
-    mitigation: list[str]
-    detection: str
+
+    # MITRE — old schema: mitre_attack, new schema: mitre_technique
+    mitre_attack: str | None = None
+    mitre_technique: str | None = None
+    mitre_tactic: str | None = None
+
+    # Explanation — old schema: explanation, new schema: description
+    explanation: str | None = None
+    description: str | None = None
+
+    # Detection — old schema: detection, new schema: detection_rule
+    detection: str | None = None
+    detection_rule: str | None = None
+
+    # Steps — old schema: mitigation, new schema: response_steps
+    mitigation: list[str] = []
+    response_steps: list[str] = []
+
+    # Shared optional fields
+    tags: list[str] = []
+    indicators: list[str] = []
+
+    model_config = {"extra": "allow"}  # pass through any unknown fields silently
 
 
 class PlaybooksResponse(BaseModel):
