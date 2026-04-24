@@ -1,0 +1,111 @@
+.panel {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 580px;
+}
+
+.title {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.card {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cardTitle {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: rgba(0,0,0,.2);
+}
+.rows { padding: 6px 12px; }
+
+.row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.row:last-child { border-bottom: none; }
+.rowKey { color: var(--text3); }
+.rowVal { color: var(--text); }
+
+.modelGrid {
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.modelTag {
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  font-family: var(--mono);
+}
+
+.errorBox {
+  background: var(--red-dim);
+  border: 1px solid var(--red);
+  border-radius: 3px;
+  padding: 14px;
+  font-size: 11px;
+  color: var(--red);
+  line-height: 1.8;
+}
+.errorBox code {
+  color: var(--text2);
+  font-family: var(--mono);
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.btn {
+  font-size: 11px;
+  color: var(--text2);
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 7px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: var(--mono);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn:hover:not(:disabled) { color: var(--text); border-color: var(--border2); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btnAccent {
+  composes: btn;
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btnAccent:hover:not(:disabled) { background: var(--accent2); border-color: var(--accent2); color: #000; }
+
+.ingestMsg {
+  font-size: 11px;
+}
