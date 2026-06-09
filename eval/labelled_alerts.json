@@ -1,0 +1,162 @@
+[
+  {
+    "id": "ta-001",
+    "alert": "Multiple failed SSH logins from 45.33.32.156 targeting root over the last 2 minutes — 87 attempts recorded.",
+    "ground_truth_playbook_ids": ["pb-001"],
+    "ground_truth_mitre": "T1110.001",
+    "ground_truth_severity": "HIGH",
+    "notes": "Classic brute force; single-source, high frequency"
+  },
+  {
+    "id": "ta-002",
+    "alert": "SYN packets to 1024 distinct ports from 203.0.113.42 within 30 seconds, no TCP handshakes completed.",
+    "ground_truth_playbook_ids": ["pb-002"],
+    "ground_truth_mitre": "T1046",
+    "ground_truth_severity": "MEDIUM",
+    "notes": "Half-open SYN scan pattern"
+  },
+  {
+    "id": "ta-003",
+    "alert": "User clicked link in email from spoofed HR domain; browser redirected to credential capture page. Outlook logged external sender masquerading as internal.",
+    "ground_truth_playbook_ids": ["pb-003"],
+    "ground_truth_mitre": "T1566.002",
+    "ground_truth_severity": "HIGH",
+    "notes": "Spearphishing link"
+  },
+  {
+    "id": "ta-004",
+    "alert": "Process 'sudo -l' executed by non-admin user followed immediately by chmod 4755 on /usr/bin/python3.",
+    "ground_truth_playbook_ids": ["pb-004"],
+    "ground_truth_mitre": "T1548",
+    "ground_truth_severity": "CRITICAL",
+    "notes": "Setuid privilege escalation attempt"
+  },
+  {
+    "id": "ta-005",
+    "alert": "Outbound transfer of 4.2 GB to 198.51.100.22 via HTTPS over 3 hours from a workstation that normally has <50 MB daily egress.",
+    "ground_truth_playbook_ids": ["pb-005"],
+    "ground_truth_mitre": "T1041",
+    "ground_truth_severity": "CRITICAL",
+    "notes": "Anomalous outbound volume"
+  },
+  {
+    "id": "ta-006",
+    "alert": "Mass file rename events on FILESERVER01 — 14,000 files renamed with .encrypted extension in 8 minutes. Shadow copies deleted via vssadmin.",
+    "ground_truth_playbook_ids": ["pb-006"],
+    "ground_truth_mitre": "T1486",
+    "ground_truth_severity": "CRITICAL",
+    "notes": "Active ransomware encryption + VSS deletion"
+  },
+  {
+    "id": "ta-007",
+    "alert": "NTLM hash captured from WORKSTATION-04 used to authenticate to three other hosts without password prompt — Pass-the-Hash pattern detected.",
+    "ground_truth_playbook_ids": ["pb-007"],
+    "ground_truth_mitre": "T1550.002",
+    "ground_truth_severity": "CRITICAL",
+    "notes": "PtH lateral movement"
+  },
+  {
+    "id": "ta-008",
+    "alert": "Beaconing detected: process svchost.exe making HTTP GET to 185.220.101.34 every 60 seconds with identical User-Agent and payload size.",
+    "ground_truth_playbook_ids": ["pb-008"],
+    "ground_truth_mitre": "T1071.001",
+    "ground_truth_severity": "CRITICAL",
+    "notes": "Periodic C2 beacon over HTTP"
+  },
+  {
+    "id": "ta-009",
+    "alert": "Finance user account downloaded 3,200 files from SharePoint in 15 minutes outside business hours — no prior access to these directories.",
+    "ground_truth_playbook_ids": ["pb-009"],
+    "ground_truth_mitre": "T1078",
+    "ground_truth_severity": "HIGH",
+    "notes": "Insider threat / abnormal bulk access"
+  },
+  {
+    "id": "ta-010",
+    "alert": "DNS queries with 60-character subdomains to attacker-controlled domain at 120 queries/minute. TXT record responses contain encoded payloads.",
+    "ground_truth_playbook_ids": ["pb-010"],
+    "ground_truth_mitre": "T1071.004",
+    "ground_truth_severity": "HIGH",
+    "notes": "DNS tunneling via TXT records"
+  },
+  {
+    "id": "ta-011",
+    "alert": "WAF alert: POST /login with parameter value: ' OR '1'='1' -- ; 500 variants attempted in 4 minutes from 192.168.5.77.",
+    "ground_truth_playbook_ids": ["pb-011"],
+    "ground_truth_mitre": "T1190",
+    "ground_truth_severity": "HIGH",
+    "notes": "SQL injection login bypass"
+  },
+  {
+    "id": "ta-012",
+    "alert": "S3 bucket 'prod-backups' accessed from IP 45.142.212.100 outside company ASN — 800 objects downloaded via pre-signed URL.",
+    "ground_truth_playbook_ids": ["pb-012"],
+    "ground_truth_mitre": "T1530",
+    "ground_truth_severity": "HIGH",
+    "notes": "Unauthorized cloud storage exfiltration"
+  },
+  {
+    "id": "ta-013",
+    "alert": "1,400 login attempts across 300 user accounts from 12 IPs in 10 minutes — each account attempted 4-5 times just below lockout threshold.",
+    "ground_truth_playbook_ids": ["pb-013"],
+    "ground_truth_mitre": "T1110.004",
+    "ground_truth_severity": "HIGH",
+    "notes": "Credential stuffing with lockout evasion"
+  },
+  {
+    "id": "ta-014",
+    "alert": "CPU usage at 98% on three servers. Process 'xmrig' found running under www-data with outbound connections to pool.minexmr.com.",
+    "ground_truth_playbook_ids": ["pb-014"],
+    "ground_truth_mitre": "T1496",
+    "ground_truth_severity": "MEDIUM",
+    "notes": "XMRig cryptominer deployed via web shell"
+  },
+  {
+    "id": "ta-015",
+    "alert": "IDS signature matched CVE-2024-XXXX — memory corruption exploit against Apache 2.4.49 with shellcode in Content-Length header.",
+    "ground_truth_playbook_ids": ["pb-015"],
+    "ground_truth_mitre": "T1203",
+    "ground_truth_severity": "CRITICAL",
+    "notes": "Zero-day / unpatched vulnerability exploit"
+  },
+  {
+    "id": "ta-016",
+    "alert": "SPN enumeration via LDAP query from WORKSTATION-09; 47 Kerberos TGS tickets requested for service accounts in 90 seconds.",
+    "ground_truth_playbook_ids": ["pb-016"],
+    "ground_truth_mitre": "T1558.003",
+    "ground_truth_severity": "HIGH",
+    "notes": "Kerberoasting — offline hash cracking prep"
+  },
+  {
+    "id": "ta-017",
+    "alert": "Container on k8s node exec'd with --privileged flag; /proc/sysrq-trigger and /dev/mem mounted inside container. Host filesystem accessible.",
+    "ground_truth_playbook_ids": ["pb-017"],
+    "ground_truth_mitre": "T1611",
+    "ground_truth_severity": "CRITICAL",
+    "notes": "Privileged container escape to host"
+  },
+  {
+    "id": "ta-018",
+    "alert": "npm install pulled 'event-stream@3.3.6' which contains obfuscated code targeting bitcoin wallet library in postinstall hook.",
+    "ground_truth_playbook_ids": ["pb-018"],
+    "ground_truth_mitre": "T1195.001",
+    "ground_truth_severity": "HIGH",
+    "notes": "Dependency confusion / supply chain compromise"
+  },
+  {
+    "id": "ta-019",
+    "alert": "Inbound UDP flood: 28 Gbps sustained, 4 million packets/sec, source IPs distributed across 60 countries — DNS amplification pattern.",
+    "ground_truth_playbook_ids": ["pb-019"],
+    "ground_truth_mitre": "T1498",
+    "ground_truth_severity": "HIGH",
+    "notes": "Volumetric DDoS via DNS amplification"
+  },
+  {
+    "id": "ta-020",
+    "alert": "GitHub secret scanning alert: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY committed in plaintext to public repository 'myapp-config'.",
+    "ground_truth_playbook_ids": ["pb-020"],
+    "ground_truth_mitre": "T1552.001",
+    "ground_truth_severity": "HIGH",
+    "notes": "Credentials exposed in public source code"
+  }
+]
