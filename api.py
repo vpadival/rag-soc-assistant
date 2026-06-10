@@ -21,8 +21,6 @@ import sys
 from contextlib import asynccontextmanager
 from typing import Any
 
-# Ensure the project root is on sys.path so the uvicorn reloader subprocess
-# can find the local modules (rag, ingest, models) regardless of cwd.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
@@ -32,8 +30,7 @@ import ollama
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
-# Internal modules
-import rag  # reuses embed / retrieve / build_prompt / generate / parse_response
+import rag
 from ingest import (
     PLAYBOOKS_PATH,
     OLLAMA_CLIENT,
@@ -56,12 +53,15 @@ from models import (
 
 # ── Paths / constants ─────────────────────────────────────────────────────────
 
-CHROMA_PATH: str = rag.CHROMA_PATH
-COLLECTION:  str = rag.COLLECTION
+CHROMA_PATH: str      = rag.CHROMA_PATH
+COLLECTION:  str      = rag.COLLECTION
+# In production, replace "*" with the actual dashboard origin, e.g.:
+#   ALLOWED_ORIGINS = ["http://localhost:5173", "https://your-dashboard.example.com"]
+ALLOWED_ORIGINS: list[str] = ["http://localhost:5173"]
 REQUIRED_MODELS: list[str] = ["llama3", "nomic-embed-text"]
 
 
-# ── App-wide shared state (initialised once at startup) ───────────────────────
+# ── App-wide shared state ─────────────────────────────────────────────────────
 
 class AppState:
     chroma_client: Any | None = None
@@ -71,15 +71,10 @@ class AppState:
 _state = AppState()
 
 
-# ── Lifespan: init ChromaDB once at startup ───────────────────────────────────
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Runs once on startup. Initialises the persistent ChromaDB client and
-    holds the collection reference for the lifetime of the server process.
-    All request handlers share this single instance.
-    """
     if os.path.exists(CHROMA_PATH):
         _client = chromadb.PersistentClient(path=CHROMA_PATH)
         _state.chroma_client = _client
@@ -87,11 +82,7 @@ async def lifespan(app: FastAPI):
             name=COLLECTION,
             metadata={"hnsw:space": "cosine"},
         )
-    # else: collection stays None — /health will report degraded state
-
-    yield  # server is running
-
-    # Teardown (nothing needed for ChromaDB — it auto-persists)
+    yield
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -103,23 +94,21 @@ app = FastAPI(
         "Wraps a local Ollama LLM + ChromaDB vector store to analyse security alerts "
         "against a curated playbook knowledge base."
     ),
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan,
 )
 
-# Allow all origins for local / dashboard use — restrict in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _require_collection() -> chromadb.Collection:
-    """Return the shared ChromaDB collection or raise 503."""
     if _state.collection is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -132,10 +121,8 @@ def _require_collection() -> chromadb.Collection:
 
 
 def _ollama_status() -> OllamaStatus:
-    """Probe Ollama and return a structured status object."""
     try:
         models_response = OLLAMA_CLIENT.list()
-        # .models is a list[ModelResponse]; each has a .model attribute
         available: list[str] = [m.model for m in models_response.models if m.model is not None]
         required_present = all(
             any(a.startswith(req) for a in available)
@@ -155,7 +142,6 @@ def _ollama_status() -> OllamaStatus:
 
 
 def _load_playbooks() -> list[dict[str, Any]]:
-    """Load playbooks.json from disk."""
     with open(PLAYBOOKS_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -166,7 +152,7 @@ def _load_playbooks() -> list[dict[str, Any]]:
     "/analyze",
     response_model=AnalyzeResponse,
     responses={
-        422: {"model": ErrorResponse, "description": "LLM returned unparseable JSON"},
+        422: {"model": ErrorResponse, "description": "LLM returned unparseable JSON after retries"},
         503: {"model": ErrorResponse, "description": "Ollama or ChromaDB unavailable"},
     },
     summary="Analyse a security alert",
@@ -176,29 +162,33 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     """
     Run the full RAG pipeline:
 
-    1. Embed the alert string via `nomic-embed-text`
+    1. Embed the alert string via nomic-embed-text
     2. Retrieve the top-K most similar playbooks from ChromaDB
     3. Build a prompt injecting retrieved context
-    4. Send to the local Ollama LLM
+    4. Send to the local Ollama LLM (with one JSON-parse retry)
     5. Parse and return structured JSON analysis
     """
     collection = _require_collection()
-
-    # Override the module-level model if the caller requested a different one
-    original_model = rag.get_llm_model()
-    rag.set_llm_model(request.model)
-
     raw_output: str = ""
+
     try:
-        # Retrieve
         hits: list[rag.Hit] = rag.retrieve(request.alert, collection, top_k=request.top_k)
-
-        # Build prompt & generate
         prompt: str = rag.build_prompt(request.alert, hits)
-        raw_output = rag.generate(prompt)
 
-        # Parse
-        parsed: dict[str, Any] = rag.parse_response(raw_output)
+        # Two-attempt generation: retry with stricter system prompt on parse failure
+        parsed: dict[str, Any] | None = None
+        for attempt in range(2):
+            sys_prompt = rag.SYSTEM_PROMPT if attempt == 0 else rag.RETRY_SYSTEM_PROMPT
+            raw_output = rag.generate(prompt, model=request.model, system=sys_prompt)
+            try:
+                parsed = rag.parse_response(raw_output)
+                break
+            except json.JSONDecodeError:
+                if attempt == 1:
+                    raise
+
+        if parsed is None:
+            raise json.JSONDecodeError("No valid JSON after retries", raw_output, 0)
 
     except json.JSONDecodeError as exc:
         raise HTTPException(
@@ -215,10 +205,7 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
-    finally:
-        rag.set_llm_model(original_model)  # always restore
 
-    # Build typed response
     retrieved = [
         RetrievedPlaybook(
             id=h["id"],
@@ -255,19 +242,13 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     tags=["Operations"],
 )
 async def health() -> HealthResponse:
-    """
-    Returns the health of all system components:
-
-    - ChromaDB store presence and document count
-    - Ollama reachability and required model availability
-    """
     ollama_stat = _ollama_status()
     chroma_ready = _state.collection is not None
     _col = _state.collection
     playbook_count = _col.count() if _col is not None else 0
 
     all_good = chroma_ready and ollama_stat.reachable and ollama_stat.required_models_present
-    degraded = chroma_ready or ollama_stat.reachable  # at least something is up
+    degraded = chroma_ready or ollama_stat.reachable
 
     return HealthResponse(
         status="ok" if all_good else ("degraded" if degraded else "error"),
@@ -286,10 +267,6 @@ async def health() -> HealthResponse:
     tags=["Knowledge Base"],
 )
 async def list_playbooks() -> PlaybooksResponse:
-    """
-    Returns the full contents of `data/playbooks.json` — the static knowledge
-    base used to build the ChromaDB vector store.
-    """
     try:
         raw: list[dict[str, Any]] = _load_playbooks()
     except FileNotFoundError:
@@ -304,11 +281,12 @@ async def list_playbooks() -> PlaybooksResponse:
             title=pb["title"],
             severity=pb["severity"],
             tags=pb.get("tags", []),
-            mitre_attack=pb.get("mitre_attack", "N/A"),
-            explanation=pb.get("explanation", ""),
+            mitre_technique=pb.get("mitre_technique"),
+            mitre_tactic=pb.get("mitre_tactic"),
+            description=pb.get("description"),
             indicators=pb.get("indicators", []),
-            mitigation=pb.get("mitigation", []),
-            detection=pb.get("detection", ""),
+            response_steps=pb.get("response_steps", []),
+            detection_rule=pb.get("detection_rule"),
         )
         for pb in raw
     ]
@@ -328,14 +306,6 @@ async def list_playbooks() -> PlaybooksResponse:
     tags=["Operations"],
 )
 async def ingest(request: IngestRequest = IngestRequest()) -> IngestResponse:
-    """
-    Reads `data/playbooks.json`, embeds every playbook using `nomic-embed-text`,
-    and upserts them into ChromaDB. Safe to call multiple times (upsert = idempotent).
-
-    Use `force=true` to re-embed even if the store already contains documents.
-    The in-process collection reference is refreshed automatically after ingestion.
-    """
-    # Soft-guard: if store exists and not forced, return early
     if not request.force and _state.collection is not None:
         current_count = _state.collection.count()
         if current_count > 0:
@@ -349,7 +319,6 @@ async def ingest(request: IngestRequest = IngestRequest()) -> IngestResponse:
                 ),
             )
 
-    # Verify Ollama is up before doing anything expensive
     ollama_stat = _ollama_status()
     if not ollama_stat.reachable:
         raise HTTPException(
@@ -357,7 +326,6 @@ async def ingest(request: IngestRequest = IngestRequest()) -> IngestResponse:
             detail="Ollama is not reachable. Start Ollama before ingesting.",
         )
 
-    # Load playbooks
     try:
         playbooks: list[dict[str, Any]] = _load_playbooks()
     except FileNotFoundError:
@@ -366,7 +334,6 @@ async def ingest(request: IngestRequest = IngestRequest()) -> IngestResponse:
             detail=f"Playbooks file not found at {PLAYBOOKS_PATH}",
         )
 
-    # (Re-)initialise ChromaDB client + collection
     _new_client = chromadb.PersistentClient(path=CHROMA_PATH)
     _state.chroma_client = _new_client
     collection: chromadb.Collection = _new_client.get_or_create_collection(
@@ -392,10 +359,10 @@ async def ingest(request: IngestRequest = IngestRequest()) -> IngestResponse:
         embeddings.append(vec)
         documents.append(doc_text)
         metadatas.append({
-            "title":        pb["title"],
-            "severity":     pb["severity"],
-            "tags":         ", ".join(pb.get("tags", [])),
-            "mitre_attack": pb.get("mitre_attack", ""),
+            "title":          pb["title"],
+            "severity":       pb["severity"],
+            "tags":           ", ".join(pb.get("tags", [])),
+            "mitre_technique": pb.get("mitre_technique", ""),
         })
 
     if not ids:
@@ -411,7 +378,6 @@ async def ingest(request: IngestRequest = IngestRequest()) -> IngestResponse:
         metadatas=metadatas,
     )
 
-    # Update the shared state so subsequent /analyze calls use the fresh collection
     _state.collection = collection
 
     return IngestResponse(
@@ -422,7 +388,7 @@ async def ingest(request: IngestRequest = IngestRequest()) -> IngestResponse:
     )
 
 
-# ── Root redirect to docs ─────────────────────────────────────────────────────
+# ── Root redirect ─────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
 async def root():

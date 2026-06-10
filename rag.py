@@ -32,19 +32,7 @@ CHROMA_PATH: str = os.path.join(os.path.dirname(__file__), "chroma_store")
 COLLECTION:  str = "soc_playbooks"
 EMBED_MODEL: str = "nomic-embed-text"
 TOP_K:       int = 2
-
-# Mutable runtime setting — lowercase so Pylance does not treat it as a constant
-_llm_model: str = "llama3"   # change to "mistral" or "phi3" if preferred
-
-
-def get_llm_model() -> str:
-    return _llm_model
-
-
-def set_llm_model(model: str) -> None:
-    global _llm_model
-    _llm_model = model
-
+DEFAULT_LLM: str = "llama3"
 
 # Type alias for a single retrieved hit
 Hit = dict[str, Any]
@@ -55,8 +43,7 @@ Hit = dict[str, Any]
 def embed(text: str) -> list[float]:
     """Return an embedding vector for *text* using the Ollama embedding model."""
     response: dict[str, Any] = ollama.embeddings(model=EMBED_MODEL, prompt=text)  # type: ignore[assignment]
-    embedding: list[float] = response["embedding"]
-    return embedding
+    return response["embedding"]
 
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
@@ -83,7 +70,7 @@ def retrieve(
     metadatas: list[dict[str, Any]] = results["metadatas"][0]   # type: ignore[index]
     distances: list[float]          = results["distances"][0]   # type: ignore[index]
 
-    hits: list[Hit] = [
+    return [
         {
             "id":       ids[i],
             "document": documents[i],
@@ -92,7 +79,6 @@ def retrieve(
         }
         for i in range(len(ids))
     ]
-    return hits
 
 
 # ── Prompt construction ───────────────────────────────────────────────────────
@@ -111,6 +97,12 @@ JSON schema (use exactly these keys):
   "mitre_attack": "<MITRE ATT&CK technique ID and name, or N/A>"
 }"""
 
+RETRY_SYSTEM_PROMPT: str = SYSTEM_PROMPT + """
+
+IMPORTANT: Your previous response was not valid JSON. Return ONLY the JSON object.
+No explanation, no markdown, no backticks — just the raw JSON object starting with '{'.
+"""
+
 
 def build_prompt(query: str, context_docs: list[Hit]) -> str:
     """Inject retrieved playbook context into the prompt template."""
@@ -127,20 +119,19 @@ def build_prompt(query: str, context_docs: list[Hit]) -> str:
 
 # ── Generation ────────────────────────────────────────────────────────────────
 
-def generate(prompt: str) -> str:
-    """Send the prompt to the local Ollama LLM and return the raw text reply."""
-    # stream=False explicitly selects the non-streaming overload so Pylance
-    # can resolve the return type to ChatResponse (not Iterator[ChatResponse]).
+def generate(prompt: str, model: str = DEFAULT_LLM, system: str = SYSTEM_PROMPT) -> str:
+    """
+    Send the prompt to the local Ollama LLM and return the raw text reply.
+    model is passed explicitly — no global mutation.
+    """
     response: ollama.ChatResponse = ollama.chat(  # type: ignore[reportUnknownMemberType]
-        model=_llm_model,
+        model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system},
             {"role": "user",   "content": prompt},
         ],
         stream=False,
     )
-    # ollama==0.2.1 returns a plain dict, not a typed ChatResponse object.
-    # Newer versions use response.message.content — keep both paths working.
     if isinstance(response, dict):
         content: str = response.get("message", {}).get("content", "") or ""
     else:
@@ -158,9 +149,11 @@ def parse_response(raw: str) -> dict[str, Any]:
         lines: list[str] = cleaned.splitlines()
         lines = [ln for ln in lines if not ln.strip().startswith("```")]
         cleaned = "\n".join(lines)
-
-    parsed: dict[str, Any] = json.loads(cleaned)
-    return parsed
+    # Trim any leading non-JSON text to the first '{'
+    brace = cleaned.find("{")
+    if brace > 0:
+        cleaned = cleaned[brace:]
+    return json.loads(cleaned)
 
 
 # ── Display ───────────────────────────────────────────────────────────────────
@@ -217,10 +210,14 @@ def display_result(query: str, result: dict[str, Any], hits: list[Hit]) -> None:
 def run_query(
     query: str,
     collection: chromadb.Collection,
+    model: str = DEFAULT_LLM,
+    max_retries: int = 2,
 ) -> Optional[dict[str, Any]]:
     """
     Full RAG pipeline: embed query → retrieve → build prompt → generate → parse.
+    Retries once with a stricter system prompt on JSON parse failure.
     Returns the structured result dict, or None on error.
+    model is passed explicitly — no global state mutation.
     """
     raw: str = ""
     try:
@@ -229,26 +226,31 @@ def run_query(
 
         prompt: str = build_prompt(query, hits)
 
-        with console.status(f"[cyan]Generating analysis with {_llm_model}…[/]"):
-            raw = generate(prompt)
+        for attempt in range(max_retries):
+            sys_prompt = SYSTEM_PROMPT if attempt == 0 else RETRY_SYSTEM_PROMPT
+            with console.status(f"[cyan]Generating analysis with {model}… (attempt {attempt + 1})[/]"):
+                raw = generate(prompt, model=model, system=sys_prompt)
+            try:
+                result: dict[str, Any] = parse_response(raw)
+                display_result(query, result, hits)
+                return result
+            except json.JSONDecodeError:
+                if attempt < max_retries - 1:
+                    console.print(f"[yellow]⚠ JSON parse failed on attempt {attempt + 1}, retrying…[/]")
+                else:
+                    console.print(f"[red]⚠ JSON parse error after {max_retries} attempts.[/]")
+                    console.print(f"[dim]Raw LLM output:[/]\n{raw}")
+                    return None
 
-        result: dict[str, Any] = parse_response(raw)
-        display_result(query, result, hits)
-        return result
-
-    except json.JSONDecodeError as exc:
-        console.print(f"[red]⚠ JSON parse error:[/] {exc}")
-        console.print(f"[dim]Raw LLM output:[/]\n{raw}")
-        return None
     except Exception as exc:  # noqa: BLE001
         console.print(f"[red]⚠ Error:[/] {exc}")
         return None
 
 
-def interactive_loop(collection: chromadb.Collection) -> None:
+def interactive_loop(collection: chromadb.Collection, model: str = DEFAULT_LLM) -> None:
     """Read-eval-print loop for interactive SOC queries."""
     console.print(Panel(
-        "[bold cyan]SOC Assistant[/] — RAG Mode\n"
+        f"[bold cyan]SOC Assistant[/] — RAG Mode | model: [bold]{model}[/]\n"
         "[dim]Type your alert and press Enter. Type [bold]exit[/] to quit.[/]",
         box=box.ROUNDED,
     ))
@@ -261,7 +263,7 @@ def interactive_loop(collection: chromadb.Collection) -> None:
             continue
         if query.lower() in ("exit", "quit", "q"):
             break
-        run_query(query, collection)
+        run_query(query, collection, model=model)
 
     console.print("\n[dim]Goodbye.[/]")
 
@@ -269,17 +271,12 @@ def interactive_loop(collection: chromadb.Collection) -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    # _llm_model is lowercase so it is not treated as a module-level constant.
-    # We still need `global` to reassign it from inside main().
-    global _llm_model
-
     parser = argparse.ArgumentParser(description="SOC Assistant — RAG pipeline")
     parser.add_argument("--query", "-q", type=str, default=None,
                         help="Run a single alert query and exit")
-    parser.add_argument("--model", "-m", type=str, default=_llm_model,
-                        help=f"Ollama LLM model to use (default: {_llm_model})")
+    parser.add_argument("--model", "-m", type=str, default=DEFAULT_LLM,
+                        help=f"Ollama LLM model to use (default: {DEFAULT_LLM})")
     args = parser.parse_args()
-    _llm_model = args.model
 
     if not os.path.exists(CHROMA_PATH):
         console.print(
@@ -288,15 +285,13 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # chromadb.PersistentClient returns a chromadb.Client — no need to
-    # reference the private ClientAPI type at all.
     client = chromadb.PersistentClient(path=CHROMA_PATH)
     collection: chromadb.Collection = client.get_collection(COLLECTION)
 
     if args.query:
-        run_query(args.query, collection)
+        run_query(args.query, collection, model=args.model)
     else:
-        interactive_loop(collection)
+        interactive_loop(collection, model=args.model)
 
 
 if __name__ == "__main__":
