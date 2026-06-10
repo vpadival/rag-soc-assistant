@@ -1,12 +1,22 @@
-# Phase 1 — RAG pipeline
-# chromadb 0.5.3 requires numpy<2 which has no Python 3.14 prebuilt wheels.
-# chromadb>=0.6.0 supports numpy 2.x which ships 3.14 wheels.
-# If you recreate the venv with Python 3.11/3.12, you can pin back to chromadb==0.5.3.
+# ── RAG pipeline ──────────────────────────────────────────────────────────────
 chromadb>=0.6.0
 ollama==0.2.1
-sentence-transformers==3.0.1
 rich==13.7.1
 
-# Phase 2 — REST API
+# ── Two-stage retrieval: cross-encoder reranking ──────────────────────────────
+# Used in eval/reranker.py — provides cross-encoder reranking on top of
+# ChromaDB bi-encoder retrieval (the standard two-stage RAG pattern).
+sentence-transformers==3.0.1
+
+# ── REST API ──────────────────────────────────────────────────────────────────
 fastapi==0.115.12
 uvicorn[standard]==0.34.0
+
+# ── Evaluation & notebooks ────────────────────────────────────────────────────
+pytest==8.3.4
+httpx==0.27.2          # async test client for FastAPI
+umap-learn==0.5.6      # embedding space visualisation
+matplotlib>=3.10.0
+scikit-learn>=1.7.0    # cosine_similarity, classification_report
+pandas>=2.2.0
+jupyter==1.1.1
