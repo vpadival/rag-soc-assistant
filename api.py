@@ -19,6 +19,7 @@ import json
 import os
 import sys
 from contextlib import asynccontextmanager
+from collections.abc import Mapping
 from typing import Any
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -55,9 +56,10 @@ from models import (
 
 CHROMA_PATH: str      = rag.CHROMA_PATH
 COLLECTION:  str      = rag.COLLECTION
-# In production, replace "*" with the actual dashboard origin, e.g.:
-#   ALLOWED_ORIGINS = ["http://localhost:5173", "https://your-dashboard.example.com"]
-ALLOWED_ORIGINS: list[str] = ["http://localhost:5173"]
+# In production, replace this with the actual dashboard origin(s).
+# The app runs locally during development, so allow any browser origin to avoid
+# CORS preflight failures when the frontend is served from a different host/port.
+ALLOWED_ORIGINS: list[str] = ["*"]
 REQUIRED_MODELS: list[str] = ["llama3", "nomic-embed-text"]
 
 
@@ -101,8 +103,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -122,8 +124,13 @@ def _require_collection() -> chromadb.Collection:
 
 def _ollama_status() -> OllamaStatus:
     try:
-        models_response = OLLAMA_CLIENT.list()
-        available: list[str] = [m.model for m in models_response.models if m.model is not None]
+        models_response: Mapping[str, Any] = OLLAMA_CLIENT.list()
+        available: list[str] = []
+        for model_info in models_response.get("models", []):
+            if isinstance(model_info, Mapping):
+                model_name = model_info.get("model")
+                if isinstance(model_name, str):
+                    available.append(model_name)
         required_present = all(
             any(a.startswith(req) for a in available)
             for req in REQUIRED_MODELS

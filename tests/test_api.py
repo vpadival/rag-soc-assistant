@@ -178,11 +178,18 @@ def test_cors_allows_localhost_5173():
         headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "GET"},
     )
     assert response.status_code in (200, 204)
-    assert "access-control-allow-origin" in response.headers
+    assert response.headers.get("access-control-allow-origin") == "*"
 
 
-def test_cors_blocks_unknown_origin():
+def test_cors_allows_localhost_other_port():
+    response = client.options(
+        "/playbooks",
+        headers={"Origin": "http://localhost:5174", "Access-Control-Request-Method": "GET"},
+    )
+    assert response.status_code in (200, 204)
+    assert response.headers.get("access-control-allow-origin") == "*"
+
+
+def test_cors_allows_unknown_origin_in_dev():
     response = client.get("/health", headers={"Origin": "https://evil.example.com"})
-    # FastAPI/Starlette omits ACAO header for disallowed origins
-    acao = response.headers.get("access-control-allow-origin", "")
-    assert acao != "https://evil.example.com"
+    assert response.headers.get("access-control-allow-origin") == "*"
