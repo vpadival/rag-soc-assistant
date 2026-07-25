@@ -106,6 +106,69 @@ def test_analyze_returns_structured_response():
     assert len(body["retrieved_playbooks"]) > 0
 
 
+def test_analyze_weak_match_skips_llm_returns_low_confidence():
+    """
+    When nothing retrieved clears the distance threshold, /analyze should not
+    call the LLM at all and should return a low-confidence templated result —
+    this is the hallucination-prevention gate.
+    """
+    weak_col = MagicMock()
+    weak_col.count.return_value = 20
+    weak_col.query.return_value = {
+        "ids":       [["pb-001"]],
+        "documents": [["Title: SSH Brute Force\nSeverity: HIGH"]],
+        "metadatas": [[{"title": "SSH Brute Force Attack", "severity": "HIGH"}]],
+        "distances": [[0.91]],  # well above DISTANCE_THRESHOLD (0.5)
+    }
+    _state.collection = weak_col
+
+    with patch("rag.embed", return_value=[0.0] * 768):
+        with patch("rag.generate") as mock_generate:
+            response = client.post("/analyze", json={"alert": "some vague unrelated text"})
+            mock_generate.assert_not_called()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis"]["confidence"] == "low"
+    assert body["analysis"]["attack_type"] == "Unknown"
+    assert body["analysis"]["mitigation"] == []
+
+
+def test_analyze_grounds_severity_and_mitre_from_playbook_metadata():
+    """
+    When the LLM's restated severity/mitre_attack disagree with the matched
+    playbook's own metadata, the metadata should win — the LLM's free-text
+    restatement of a structured fact is not trusted over the source of truth.
+    """
+    grounded_col = MagicMock()
+    grounded_col.count.return_value = 20
+    grounded_col.query.return_value = {
+        "ids":       [["pb-001"]],
+        "documents": [["Title: SSH Brute Force\nSeverity: HIGH"]],
+        "metadatas": [[{
+            "title": "SSH Brute Force Attack",
+            "severity": "HIGH",
+            "mitre_attack": "T1110.001",
+        }]],
+        "distances": [[0.05]],
+    }
+    _state.collection = grounded_col
+
+    hallucinated_analysis = dict(VALID_ANALYSIS)
+    hallucinated_analysis["severity"] = "CRITICAL"          # disagrees with metadata (HIGH)
+    hallucinated_analysis["mitre_attack"] = "T9999 - Made Up Technique"  # disagrees with metadata
+
+    with patch("rag.embed", return_value=[0.0] * 768):
+        with patch("rag.generate", return_value=json.dumps(hallucinated_analysis)):
+            response = client.post("/analyze", json={"alert": "Multiple SSH failures"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["analysis"]["severity"] == "HIGH"           # from metadata, not the LLM's "CRITICAL"
+    assert body["analysis"]["mitre_attack"] == "T1110.001"  # from metadata, not the LLM's made-up ID
+    assert body["analysis"]["confidence"] == "high"
+
+
 def test_analyze_returns_422_on_unparseable_json():
     with patch("rag.embed", return_value=[0.0] * 768):
         with patch("rag.generate", return_value="definitely not json"):

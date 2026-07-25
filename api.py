@@ -178,8 +178,51 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     collection = _require_collection()
     raw_output: str = ""
 
+    hits: list[rag.Hit] = rag.retrieve(request.alert, collection, top_k=request.top_k)
+
+    retrieved = [
+        RetrievedPlaybook(
+            id=h["id"],
+            title=h["metadata"].get("title", ""),
+            severity=h["metadata"].get("severity", ""),
+            distance=round(h["distance"], 6),
+        )
+        for h in hits
+    ]
+
+    # ── Retrieval-quality gate ──────────────────────────────────────────────
+    # If nothing retrieved clears the similarity threshold, don't ask the LLM
+    # to produce a confident-sounding structured report off a weak/irrelevant
+    # match — that's exactly the shape of a hallucinated triage report. Return
+    # a low-confidence templated response instead, and skip the LLM call.
+    if not rag.has_reliable_match(hits):
+        best_distance_str = (
+            "N/A" if not hits else f"{min(h['distance'] for h in hits):.4f}"
+        )
+        analysis = AnalysisResult(
+            attack_type="Unknown",
+            severity="UNKNOWN",
+            explanation=(
+                "No playbook in the knowledge base matched this alert closely "
+                "enough to generate a reliable analysis (best cosine distance "
+                f"{best_distance_str} "
+                f"exceeds the {rag.DISTANCE_THRESHOLD} threshold). Rephrase the "
+                "alert with more specific indicators, or expand the playbook "
+                "knowledge base to cover this type of activity."
+            ),
+            mitigation=[],
+            detection_recommendation="",
+            mitre_attack="N/A",
+            confidence="low",
+        )
+        return AnalyzeResponse(
+            alert=request.alert,
+            model_used=request.model,
+            retrieved_playbooks=retrieved,
+            analysis=analysis,
+        )
+
     try:
-        hits: list[rag.Hit] = rag.retrieve(request.alert, collection, top_k=request.top_k)
         prompt: str = rag.build_prompt(request.alert, hits)
 
         # Two-attempt generation: retry with stricter system prompt on parse failure
@@ -213,23 +256,28 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             detail=str(exc),
         ) from exc
 
-    retrieved = [
-        RetrievedPlaybook(
-            id=h["id"],
-            title=h["metadata"].get("title", ""),
-            severity=h["metadata"].get("severity", ""),
-            distance=round(h["distance"], 6),
-        )
-        for h in hits
-    ]
+    # Ground the structured/factual fields in the top matched playbook's own
+    # metadata rather than trusting the LLM's free-text restatement of them —
+    # the LLM can still misstate a MITRE ID or severity even when the retrieved
+    # context was correct. The narrative fields (explanation, mitigation,
+    # detection_recommendation) are left to the LLM since synthesizing those
+    # for the specific alert is the actual value it adds.
+    top_metadata = hits[0]["metadata"]
+    grounded_severity = top_metadata.get("severity") or parsed.get("severity", "UNKNOWN")
+    grounded_mitre = (
+        top_metadata.get("mitre_attack")
+        or top_metadata.get("mitre_technique")
+        or parsed.get("mitre_attack", "N/A")
+    )
 
     analysis = AnalysisResult(
         attack_type=parsed.get("attack_type", "Unknown"),
-        severity=parsed.get("severity", "UNKNOWN"),
+        severity=grounded_severity,
         explanation=parsed.get("explanation", ""),
         mitigation=parsed.get("mitigation", []),
         detection_recommendation=parsed.get("detection_recommendation", ""),
-        mitre_attack=parsed.get("mitre_attack", "N/A"),
+        mitre_attack=grounded_mitre,
+        confidence="high",
     )
 
     return AnalyzeResponse(

@@ -90,6 +90,32 @@ def test_build_prompt_multiple_hits():
     assert "doc2" in prompt
 
 
+# ── has_reliable_match ─────────────────────────────────────────────────────────
+
+def test_has_reliable_match_true_when_within_threshold():
+    hits = [_make_hit("SSH Brute Force Attack", "HIGH")]
+    hits[0]["distance"] = 0.2
+    assert rag.has_reliable_match(hits) is True
+
+
+def test_has_reliable_match_false_when_all_weak():
+    hits = [_make_hit("SSH Brute Force Attack", "HIGH")]
+    hits[0]["distance"] = 0.9
+    assert rag.has_reliable_match(hits) is False
+
+
+def test_has_reliable_match_false_when_no_hits():
+    assert rag.has_reliable_match([]) is False
+
+
+def test_has_reliable_match_true_if_any_hit_is_strong():
+    strong = _make_hit("SSH Brute Force Attack", "HIGH")
+    strong["distance"] = 0.1
+    weak = _make_hit("Port Scanning", "MEDIUM")
+    weak["distance"] = 0.9
+    assert rag.has_reliable_match([weak, strong]) is True
+
+
 # ── retrieve ──────────────────────────────────────────────────────────────────
 
 def test_retrieve_returns_correct_hit_structure():

@@ -56,6 +56,17 @@ class AnalysisResult(BaseModel):
     mitigation: list[str]
     detection_recommendation: str
     mitre_attack: str
+    confidence: str = Field(
+        default="high",
+        description=(
+            "'high' when the best retrieved playbook cleared the similarity "
+            "threshold — severity and mitre_attack are taken from that playbook's "
+            "metadata rather than the LLM's own restatement of them. "
+            "'low' when no playbook cleared the threshold — this is a templated "
+            "fallback response and the LLM was not called, to avoid a confident-"
+            "sounding answer built on an irrelevant match."
+        ),
+    )
 
 
 # ── Response bodies ────────────────────────────────────────────────────────────

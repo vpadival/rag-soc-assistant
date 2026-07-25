@@ -34,6 +34,19 @@ EMBED_MODEL: str = "nomic-embed-text"
 TOP_K:       int = 2
 DEFAULT_LLM: str = "llama3"
 
+# Cosine distance above which a retrieved playbook is considered a weak /
+# unreliable match. The frontend already shows this to the user as a cosmetic
+# "weak match" badge (frontend/src/components/TriageReport.jsx), but nothing
+# on the backend used it to change behavior — the LLM was always asked to
+# produce a confident-sounding structured report even off a bad match.
+# Callers (api.py) should check this before generating.
+DISTANCE_THRESHOLD: float = 0.5
+
+# Sampling temperature for generation. This is a fact-constrained structured
+# extraction task (attack classification, MITRE mapping), not open-ended
+# writing, so low temperature is preferred to reduce free invention.
+DEFAULT_TEMPERATURE: float = 0.2
+
 # Type alias for a single retrieved hit
 Hit = dict[str, Any]
 
@@ -47,6 +60,18 @@ def embed(text: str) -> list[float]:
 
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
+
+def has_reliable_match(hits: list[Hit], threshold: float = DISTANCE_THRESHOLD) -> bool:
+    """
+    True if the best retrieved hit is close enough to trust as grounding for
+    generation. Callers should treat a False result as "no confident match" —
+    e.g. return a low-confidence templated response instead of asking the LLM
+    to produce a confident-sounding report off a weak/irrelevant playbook.
+    """
+    if not hits:
+        return False
+    return min(h["distance"] for h in hits) <= threshold
+
 
 def retrieve(
     query: str,
@@ -119,10 +144,17 @@ def build_prompt(query: str, context_docs: list[Hit]) -> str:
 
 # ── Generation ────────────────────────────────────────────────────────────────
 
-def generate(prompt: str, model: str = DEFAULT_LLM, system: str = SYSTEM_PROMPT) -> str:
+def generate(
+    prompt: str,
+    model: str = DEFAULT_LLM,
+    system: str = SYSTEM_PROMPT,
+    temperature: float = DEFAULT_TEMPERATURE,
+) -> str:
     """
     Send the prompt to the local Ollama LLM and return the raw text reply.
     model is passed explicitly — no global mutation.
+    temperature defaults low (see DEFAULT_TEMPERATURE) since this is a
+    fact-constrained extraction task, not open-ended writing.
     """
     response: ollama.ChatResponse = ollama.chat(  # type: ignore[reportUnknownMemberType]
         model=model,
@@ -130,6 +162,7 @@ def generate(prompt: str, model: str = DEFAULT_LLM, system: str = SYSTEM_PROMPT)
             {"role": "system", "content": system},
             {"role": "user",   "content": prompt},
         ],
+        options={"temperature": temperature},
         stream=False,
     )
     if isinstance(response, dict):
