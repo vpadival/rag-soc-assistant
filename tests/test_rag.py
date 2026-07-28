@@ -92,28 +92,81 @@ def test_build_prompt_multiple_hits():
 
 # ── has_reliable_match ─────────────────────────────────────────────────────────
 
-def test_has_reliable_match_true_when_within_threshold():
-    hits = [_make_hit("SSH Brute Force Attack", "HIGH")]
+def test_has_reliable_match_true_when_within_threshold_and_overlapping():
+    hits = [_make_hit("SSH Brute Force Attack", "HIGH", document="SSH brute force login attempts")]
     hits[0]["distance"] = 0.2
-    assert rag.has_reliable_match(hits) is True
+    assert rag.has_reliable_match("Multiple SSH brute force login attempts", hits) is True
 
 
 def test_has_reliable_match_false_when_all_weak():
-    hits = [_make_hit("SSH Brute Force Attack", "HIGH")]
+    hits = [_make_hit("SSH Brute Force Attack", "HIGH", document="SSH brute force login attempts")]
     hits[0]["distance"] = 0.9
-    assert rag.has_reliable_match(hits) is False
+    assert rag.has_reliable_match("Multiple SSH brute force login attempts", hits) is False
 
 
 def test_has_reliable_match_false_when_no_hits():
-    assert rag.has_reliable_match([]) is False
+    assert rag.has_reliable_match("anything", []) is False
 
 
-def test_has_reliable_match_true_if_any_hit_is_strong():
-    strong = _make_hit("SSH Brute Force Attack", "HIGH")
+def test_has_reliable_match_true_if_any_hit_is_strong_and_overlapping():
+    strong = _make_hit("SSH Brute Force Attack", "HIGH", document="SSH brute force login attempts")
     strong["distance"] = 0.1
     weak = _make_hit("Port Scanning", "MEDIUM")
     weak["distance"] = 0.9
-    assert rag.has_reliable_match([weak, strong]) is True
+    assert rag.has_reliable_match("Multiple SSH brute force login attempts", [weak, strong]) is True
+
+
+def test_has_reliable_match_false_on_low_distance_but_no_topical_overlap():
+    """
+    Regression test for the observed live failure: an alert with no topical
+    relationship to the matched playbook can still score under the distance
+    threshold (e.g. 0.47 was observed for this exact example against an
+    unrelated playbook). Lexical overlap should catch what distance alone
+    misses.
+    """
+    hits = [_make_hit(
+        "Insider Threat / Abnormal Data Access", "HIGH",
+        document="Anomalous session detected accessing sensitive data outside normal user behavior",
+    )]
+    hits[0]["distance"] = 0.47
+    query = "Employee reported their office chair keeps squeaking and their monitor flickers occasionally, possibly a loose cable."
+    assert rag.has_reliable_match(query, hits) is False
+
+
+# ── match_diagnostics ──────────────────────────────────────────────────────────
+
+def test_match_diagnostics_reason_no_hits():
+    diag = rag.match_diagnostics("anything", [])
+    assert diag == {"reliable": False, "best_distance": None, "reason": "no_hits"}
+
+
+def test_match_diagnostics_reason_distance():
+    hits = [_make_hit("SSH Brute Force Attack", "HIGH", document="SSH brute force login attempts")]
+    hits[0]["distance"] = 0.9
+    diag = rag.match_diagnostics("Multiple SSH failures", hits)
+    assert diag["reliable"] is False
+    assert diag["reason"] == "distance"
+    assert diag["best_distance"] == 0.9
+
+
+def test_match_diagnostics_reason_overlap():
+    hits = [_make_hit(
+        "Insider Threat / Abnormal Data Access", "HIGH",
+        document="Anomalous session detected accessing sensitive data outside normal user behavior",
+    )]
+    hits[0]["distance"] = 0.47
+    query = "Employee reported their office chair keeps squeaking and their monitor flickers occasionally, possibly a loose cable."
+    diag = rag.match_diagnostics(query, hits)
+    assert diag["reliable"] is False
+    assert diag["reason"] == "overlap"
+    assert diag["best_distance"] == 0.47
+
+
+def test_match_diagnostics_reliable_true():
+    hits = [_make_hit("SSH Brute Force Attack", "HIGH", document="SSH brute force login attempts")]
+    hits[0]["distance"] = 0.2
+    diag = rag.match_diagnostics("Multiple SSH brute force login attempts", hits)
+    assert diag == {"reliable": True, "best_distance": 0.2, "reason": ""}
 
 
 # ── retrieve ──────────────────────────────────────────────────────────────────

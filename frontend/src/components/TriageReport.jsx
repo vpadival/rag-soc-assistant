@@ -61,16 +61,15 @@ function SourceTag({ source, weak }) {
     ? (source.id || source.title || JSON.stringify(source))
     : String(source)
   return (
-    <span className={`${styles.sourceTag} ${weak ? styles.sourceTagWeak : ''}`} title={weak ? 'Weak match (distance > 0.5)' : ''}>
+    <span className={`${styles.sourceTag} ${weak ? styles.sourceTagWeak : ''}`} title={weak ? 'Weak match' : ''}>
       {label}{weak ? ' ·' : ''}
     </span>
   )
 }
 
-function PlaybookCard({ pb }) {
+function PlaybookCard({ pb, weak }) {
   const sev      = (pb.severity || '').toUpperCase()
   const badgeCls = sev === 'CRITICAL' ? 'badge--crit' : sev === 'HIGH' ? 'badge--high' : sev === 'MEDIUM' ? 'badge--med' : 'badge--low'
-  const weak     = pb.distance != null && pb.distance > DISTANCE_THRESHOLD
   const distPct  = pb.distance != null ? Math.min(100, Math.round(pb.distance * 100)) : null
 
   return (
@@ -124,8 +123,22 @@ function ReportContent({ result }) {
   const sev        = (analysis.severity || detectSeverity(JSON.stringify(result))).toUpperCase()
   const color      = sevColor(sev)
 
-  const strongSources = sources.filter(s => s.distance == null || s.distance <= DISTANCE_THRESHOLD)
-  const weakSources   = sources.filter(s => s.distance != null && s.distance > DISTANCE_THRESHOLD)
+  // Prefer the backend's actual verdict (analysis.confidence) over re-deriving
+  // "weak/strong" from raw distance client-side. The backend gate also checks
+  // topical keyword overlap, not just distance (see rag.match_diagnostics) —
+  // a source can clear the 0.5 distance threshold and still be the reason the
+  // overall analysis came back low-confidence. When confidence is "low", every
+  // retrieved source is shown as weak so the badges don't contradict the
+  // top-level UNKNOWN verdict. Older backend responses without a confidence
+  // field fall back to the previous distance-only heuristic.
+  const isWeakSource = (s) => {
+    if (analysis.confidence === 'low') return true
+    if (analysis.confidence === 'high') return s.distance != null && s.distance > DISTANCE_THRESHOLD
+    return s.distance != null && s.distance > DISTANCE_THRESHOLD  // no confidence field: old behavior
+  }
+
+  const strongSources = sources.filter(s => !isWeakSource(s))
+  const weakSources    = sources.filter(s => isWeakSource(s))
 
   return (
     <div className={styles.reportStack}>
@@ -151,7 +164,7 @@ function ReportContent({ result }) {
                 <SourceTag
                   key={i}
                   source={s}
-                  weak={s.distance != null && s.distance > DISTANCE_THRESHOLD}
+                  weak={isWeakSource(s)}
                 />
               ))}
             </div>
@@ -160,9 +173,11 @@ function ReportContent({ result }) {
       </div>
 
       {/* Retrieval quality notice */}
-      {weakSources.length > 0 && strongSources.length === 0 && (
+      {(weakSources.length > 0 && strongSources.length === 0) && (
         <div className={styles.qualityNote}>
-          ⚠ Both retrieved playbooks are weak matches. Consider rephrasing your alert
+          ⚠ {analysis.confidence === 'low'
+            ? 'No retrieved playbook was reliable enough to ground this analysis (distance and/or keyword overlap check failed).'
+            : 'Both retrieved playbooks are weak matches.'} Consider rephrasing your alert
           with more specific threat indicators, or expanding the playbook knowledge base.
         </div>
       )}
@@ -197,12 +212,12 @@ function ReportContent({ result }) {
           <div className={styles.cardHeader}>
             <span className={styles.cardTitle} style={{ color: 'var(--blue)' }}>matched playbooks</span>
             <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text3)' }}>
-              threshold &lt;0.5 = strong
+              distance &lt;0.5 + keyword overlap = strong
             </span>
           </div>
           <div className={styles.cardBody}>
             {sources.map((s, i) => (
-              <PlaybookCard key={i} pb={typeof s === 'object' ? s : { title: String(s) }} />
+              <PlaybookCard key={i} pb={typeof s === 'object' ? s : { title: String(s) }} weak={isWeakSource(s)} />
             ))}
           </div>
         </div>

@@ -195,20 +195,32 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
     # to produce a confident-sounding structured report off a weak/irrelevant
     # match — that's exactly the shape of a hallucinated triage report. Return
     # a low-confidence templated response instead, and skip the LLM call.
-    if not rag.has_reliable_match(hits):
+    if not rag.has_reliable_match(request.alert, hits):
+        diag = rag.match_diagnostics(request.alert, hits)
         best_distance_str = (
-            "N/A" if not hits else f"{min(h['distance'] for h in hits):.4f}"
+            "N/A" if diag["best_distance"] is None else f"{diag['best_distance']:.4f}"
         )
+        if diag["reason"] == "no_hits":
+            reason_str = "no playbooks were retrieved at all"
+        elif diag["reason"] == "distance":
+            reason_str = (
+                f"the best cosine distance ({best_distance_str}) exceeds the "
+                f"{rag.DISTANCE_THRESHOLD} threshold"
+            )
+        else:  # "overlap"
+            reason_str = (
+                f"the closest playbook (distance {best_distance_str}, within the "
+                f"{rag.DISTANCE_THRESHOLD} threshold) shares no meaningful "
+                "keywords with the alert text"
+            )
         analysis = AnalysisResult(
             attack_type="Unknown",
             severity="UNKNOWN",
             explanation=(
                 "No playbook in the knowledge base matched this alert closely "
-                "enough to generate a reliable analysis (best cosine distance "
-                f"{best_distance_str} "
-                f"exceeds the {rag.DISTANCE_THRESHOLD} threshold). Rephrase the "
-                "alert with more specific indicators, or expand the playbook "
-                "knowledge base to cover this type of activity."
+                f"enough to generate a reliable analysis ({reason_str}). "
+                "Rephrase the alert with more specific indicators, or expand "
+                "the playbook knowledge base to cover this type of activity."
             ),
             mitigation=[],
             detection_recommendation="",

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Any, Optional
 
@@ -61,16 +62,102 @@ def embed(text: str) -> list[float]:
 
 # ── Retrieval ─────────────────────────────────────────────────────────────────
 
-def has_reliable_match(hits: list[Hit], threshold: float = DISTANCE_THRESHOLD) -> bool:
+# Common English words that carry no topical signal for overlap purposes.
+# Deliberately small and conservative — this is a cheap supplementary check,
+# not a real relevance model. See has_reliable_match() docstring for why it
+# exists alongside (not instead of) the distance threshold.
+_STOPWORDS: frozenset[str] = frozenset({
+    "the", "and", "for", "are", "was", "were", "been", "being", "has", "have",
+    "had", "not", "but", "with", "from", "this", "that", "these", "those",
+    "their", "they", "them", "than", "then", "there", "here", "who", "what",
+    "when", "where", "why", "how", "all", "any", "some", "into", "onto",
+    "over", "under", "about", "after", "before", "during", "while", "could",
+    "would", "should", "will", "shall", "may", "might", "must", "can", "did",
+    "does", "doing", "each", "few", "more", "most", "other", "such", "only",
+    "own", "same", "out", "off", "again", "further", "once", "possibly",
+    "occasionally", "reported", "keeps",
+})
+
+# Minimum number of shared, non-generic tokens the alert must have with its
+# best-matched playbook's text for the match to count as reliable.
+MIN_LEXICAL_OVERLAP: int = 1
+
+
+def _significant_tokens(text: str) -> set[str]:
+    """Lowercase alnum tokens of length >= 3, minus stopwords."""
+    return {
+        w for w in re.findall(r"[a-z0-9]+", text.lower())
+        if len(w) >= 3 and w not in _STOPWORDS
+    }
+
+
+def match_diagnostics(
+    query: str,
+    hits: list[Hit],
+    threshold: float = DISTANCE_THRESHOLD,
+    min_overlap: int = MIN_LEXICAL_OVERLAP,
+) -> dict[str, Any]:
     """
-    True if the best retrieved hit is close enough to trust as grounding for
-    generation. Callers should treat a False result as "no confident match" —
-    e.g. return a low-confidence templated response instead of asking the LLM
-    to produce a confident-sounding report off a weak/irrelevant playbook.
+    Like has_reliable_match(), but returns *why* — so callers building a
+    user-facing explanation can say what actually failed instead of always
+    blaming distance regardless of which check rejected the match.
+
+    Returns a dict with:
+      - reliable: bool
+      - best_distance: float | None (None if there were no hits at all)
+      - reason: "no_hits" | "distance" | "overlap" | "" (empty when reliable)
     """
     if not hits:
-        return False
-    return min(h["distance"] for h in hits) <= threshold
+        return {"reliable": False, "best_distance": None, "reason": "no_hits"}
+
+    best = min(hits, key=lambda h: h["distance"])
+    best_distance = best["distance"]
+
+    if best_distance > threshold:
+        return {"reliable": False, "best_distance": best_distance, "reason": "distance"}
+
+    query_tokens = _significant_tokens(query)
+    doc_tokens = _significant_tokens(
+        best.get("document", "") + " " + best["metadata"].get("title", "")
+    )
+    if len(query_tokens & doc_tokens) < min_overlap:
+        return {"reliable": False, "best_distance": best_distance, "reason": "overlap"}
+
+    return {"reliable": True, "best_distance": best_distance, "reason": ""}
+
+
+def has_reliable_match(
+    query: str,
+    hits: list[Hit],
+    threshold: float = DISTANCE_THRESHOLD,
+    min_overlap: int = MIN_LEXICAL_OVERLAP,
+) -> bool:
+    """
+    True if the best retrieved hit is close enough AND topically overlapping
+    enough to trust as grounding for generation.
+
+    Distance alone is not sufficient here: cosine distance from
+    nomic-embed-text over this playbook set does not reliably separate
+    genuinely relevant alerts from unrelated text — an alert describing an
+    office chair squeaking was observed to score 0.47 distance (under the
+    0.5 threshold) against an unrelated security playbook. Bi-encoder
+    embedding spaces like this one are often anisotropic enough that
+    "unrelated" text still lands at a moderate rather than large distance.
+
+    As a cheap supplementary check (no new dependency, unlike a proper
+    cross-encoder reranker — see eval/reranker.py for that heavier, more
+    reliable option), this also requires the alert text to share at least
+    `min_overlap` non-generic token(s) with the best-matched playbook's own
+    text. This is a coarse heuristic, not a relevance model: it can still be
+    fooled by incidental keyword overlap, and it can reject a genuine match
+    phrased with unusual vocabulary. It narrows the specific failure mode
+    observed (topically unrelated text passing on distance alone); it does
+    not replace proper reranking.
+
+    See match_diagnostics() for a version that also reports which check
+    failed, rather than just true/false.
+    """
+    return match_diagnostics(query, hits, threshold, min_overlap)["reliable"]
 
 
 def retrieve(

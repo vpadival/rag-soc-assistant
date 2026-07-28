@@ -132,6 +132,40 @@ def test_analyze_weak_match_skips_llm_returns_low_confidence():
     assert body["analysis"]["confidence"] == "low"
     assert body["analysis"]["attack_type"] == "Unknown"
     assert body["analysis"]["mitigation"] == []
+    assert "0.91" in body["analysis"]["explanation"]
+    assert "exceeds the" in body["analysis"]["explanation"]  # correctly a distance failure here
+
+
+def test_analyze_weak_match_explanation_blames_overlap_not_distance_when_distance_is_fine():
+    """
+    Regression test for the observed bug: when a match clears the distance
+    threshold but has no topical overlap, the explanation must say so — not
+    falsely claim distance was the problem (it previously always did).
+    """
+    overlap_fail_col = MagicMock()
+    overlap_fail_col.count.return_value = 20
+    overlap_fail_col.query.return_value = {
+        "ids":       [["pb-009"]],
+        "documents": [["Anomalous session detected accessing sensitive data outside normal user behavior"]],
+        "metadatas": [[{"title": "Insider Threat / Abnormal Data Access", "severity": "HIGH"}]],
+        "distances": [[0.4672]],  # within threshold
+    }
+    _state.collection = overlap_fail_col
+
+    alert = (
+        "Employee reported their office chair keeps squeaking and their "
+        "monitor flickers occasionally, possibly a loose cable."
+    )
+    with patch("rag.embed", return_value=[0.0] * 768):
+        with patch("rag.generate") as mock_generate:
+            response = client.post("/analyze", json={"alert": alert})
+            mock_generate.assert_not_called()
+
+    assert response.status_code == 200
+    explanation = response.json()["analysis"]["explanation"]
+    assert "0.4672" in explanation
+    assert "exceeds" not in explanation          # must not falsely blame distance
+    assert "no meaningful" in explanation or "keywords" in explanation
 
 
 def test_analyze_grounds_severity_and_mitre_from_playbook_metadata():
@@ -172,7 +206,7 @@ def test_analyze_grounds_severity_and_mitre_from_playbook_metadata():
 def test_analyze_returns_422_on_unparseable_json():
     with patch("rag.embed", return_value=[0.0] * 768):
         with patch("rag.generate", return_value="definitely not json"):
-            response = client.post("/analyze", json={"alert": "test"})
+            response = client.post("/analyze", json={"alert": "Multiple SSH login failures"})
     assert response.status_code == 422
 
 
@@ -185,7 +219,7 @@ def test_analyze_respects_model_field():
 
     with patch("rag.embed", return_value=[0.0] * 768):
         with patch("rag.generate", side_effect=mock_generate):
-            client.post("/analyze", json={"alert": "test", "model": "mistral"})
+            client.post("/analyze", json={"alert": "Multiple SSH login failures", "model": "mistral"})
 
     assert captured.get("model") == "mistral"
 
