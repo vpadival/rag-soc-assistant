@@ -51,6 +51,7 @@ vector_store/
 
 # Chroma / vector DB
 chroma_store/
+chroma_store_*/
 *.sqlite3
 
 # Frontend dependencies/build

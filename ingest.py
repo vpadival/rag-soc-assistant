@@ -14,6 +14,8 @@ import json
 import os
 from typing import Any
 
+os.environ.setdefault("PYDANTIC_DISABLE_PLUGINS", "__all__")
+
 import chromadb
 import ollama
 from rich.console import Console
